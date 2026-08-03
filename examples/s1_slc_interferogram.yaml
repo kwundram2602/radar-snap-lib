@@ -1,0 +1,67 @@
+# Sentinel-1 SLC interferogram from a reference/secondary pair.
+#
+#   radar-snap dump-xml examples/s1_slc_interferogram.yaml -o /tmp/ifg.xml
+#
+# Not a linear chain: two Read nodes feed Back-Geocoding, and TOPSAR-Split is
+# used twice. Both need the reserved keys -- `op` to name the operator when the
+# node id differs from it, and `sources` to wire inputs explicitly.
+
+vars:
+  reference: /data/s1/S1A_IW_SLC__1SDV_20240101T054321.zip
+  secondary: /data/s1/S1A_IW_SLC__1SDV_20240113T054321.zip
+  output: /data/s1/out/interferogram.dim
+  subswath: IW2
+  polarisation: VV
+
+pipeline:
+  read_ref:
+    op: Read
+    file: ${vars.reference}
+
+  orbit_ref:
+    op: Apply-Orbit-File
+    sources: read_ref
+
+  split_ref:
+    op: TOPSAR-Split
+    sources: orbit_ref
+    subswath: ${vars.subswath}
+    selectedPolarisations: ${vars.polarisation}
+
+  read_sec:
+    op: Read
+    sources: []
+    file: ${vars.secondary}
+
+  orbit_sec:
+    op: Apply-Orbit-File
+    sources: read_sec
+
+  split_sec:
+    op: TOPSAR-Split
+    sources: orbit_sec
+    subswath: ${vars.subswath}
+    selectedPolarisations: ${vars.polarisation}
+
+  coreg:
+    op: Back-Geocoding
+    sources: [split_ref, split_sec]
+    demName: Copernicus 30m Global DEM
+    resamplingType: BISINC_5_POINT_INTERPOLATION
+    maskOutAreaWithoutElevation: true
+
+  Interferogram:
+    sources: coreg
+    subtractFlatEarthPhase: true
+    includeCoherence: true
+    cohWinRg: 10
+    cohWinAz: 2
+
+  TOPSAR-Deburst: {}
+
+  GoldsteinPhaseFiltering:
+    alpha: 1.0
+
+  Write:
+    file: ${vars.output}
+    formatName: BEAM-DIMAP

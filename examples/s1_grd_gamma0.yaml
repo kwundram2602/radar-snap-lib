@@ -1,0 +1,49 @@
+# Sentinel-1 GRD -> terrain-corrected gamma0 backscatter.
+#
+#   radar-snap validate examples/s1_grd_gamma0.yaml
+#   radar-snap run examples/s1_grd_gamma0.yaml --dump-xml /tmp/graph.xml
+#
+# A linear chain: every node takes the previous one as its source, so nothing
+# needs wiring up.
+
+vars:
+  scene: /data/s1/S1A_IW_GRDH_1SDV_20240101T054321_20240101T054346_051234_062ABC_1234.zip
+  output: /data/s1/out/gamma0_tc.tif
+
+pipeline:
+  Read:
+    file: ${vars.scene}
+
+  Apply-Orbit-File:
+    orbitType: Sentinel Precise (Auto Download)
+    continueOnFail: true
+
+  Remove-GRD-Border-Noise:
+    borderLimit: 500
+    trimThreshold: 0.5
+
+  ThermalNoiseRemoval:
+    removeThermalNoise: true
+
+  Calibration:
+    outputBetaBand: true
+    outputSigmaBand: false
+
+  Terrain-Flattening:
+    demName: Copernicus 30m Global DEM
+
+  Speckle-Filter:
+    filter: Refined Lee
+
+  Terrain-Correction:
+    demName: Copernicus 30m Global DEM
+    imgResamplingMethod: BILINEAR_INTERPOLATION
+    pixelSpacingInMeter: 10.0
+    mapProjection: WGS84(DD)
+    saveSelectedSourceBand: true
+
+  LinearToFromdB: {}
+
+  Write:
+    file: ${vars.output}
+    formatName: GeoTIFF

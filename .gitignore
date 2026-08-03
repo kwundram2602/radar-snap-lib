@@ -5,8 +5,14 @@ build/
 dist/
 wheels/
 *.egg-info
-
+old/
 # Virtual environments
 .venv
+
+# Local machine config (see .env.example)
+.env
 .claude
 CLAUDE.md
+
+# Generated operator reference (`radar-snap gen-registry`); specs stay tracked
+docs/operators.md

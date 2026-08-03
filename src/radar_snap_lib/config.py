@@ -16,11 +16,15 @@ from __future__ import annotations
 import os
 import sys
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 
 ENV_VAR = "ESA_SNAPPY_VENV"
 _TOOL_TABLE = "radar-snap-lib"
 _TOOL_KEY = "esa-snappy-venv"
+EDL_TOKEN_VAR = "EARTHDATA_TOKEN"
+EDL_USERNAME_VAR = "EARTHDATA_USERNAME"
+EDL_PASSWORD_VAR = "EARTHDATA_PASSWORD"
 
 
 def _project_root() -> Path | None:
@@ -32,11 +36,11 @@ def _project_root() -> Path | None:
     return None
 
 
-def _from_env() -> str | None:
-    return os.environ.get(ENV_VAR) or None
+def _from_env(key: str) -> str | None:
+    return os.environ.get(key) or None
 
 
-def _from_dotenv(root: Path) -> str | None:
+def _from_dotenv(root: Path, key: str) -> str | None:
     dotenv = root / ".env"
     if not dotenv.is_file():
         return None
@@ -44,11 +48,24 @@ def _from_dotenv(root: Path) -> str | None:
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-        key, _, value = line.partition("=")
-        if key.strip().removeprefix("export ").strip() != ENV_VAR:
+        name, _, value = line.partition("=")
+        if name.strip().removeprefix("export ").strip() != key:
             continue
         return value.strip().strip("'\"") or None
     return None
+
+
+def env_value(key: str) -> str | None:
+    """Resolve a setting from the environment, then the project's ``.env``.
+
+    Deliberately does not consult ``pyproject.toml`` -- that file is committed,
+    and this is the path credentials travel.
+    """
+    value = _from_env(key)
+    if value is not None:
+        return value
+    root = _project_root()
+    return None if root is None else _from_dotenv(root, key)
 
 
 def _from_pyproject(root: Path) -> str | None:
@@ -60,9 +77,9 @@ def _from_pyproject(root: Path) -> str | None:
 def snappy_venv_path() -> Path | None:
     """Return the configured ``esa_snappy`` venv, or ``None`` if unset."""
     root = _project_root()
-    value = _from_env()
+    value = _from_env(ENV_VAR)
     if value is None and root is not None:
-        value = _from_dotenv(root) or _from_pyproject(root)
+        value = _from_dotenv(root, ENV_VAR) or _from_pyproject(root)
     if value is None:
         return None
     path = Path(os.path.expandvars(value)).expanduser()
@@ -99,10 +116,40 @@ def snappy_site_packages() -> Path:
 def ensure_esa_snappy() -> Path:
     """Put the ``esa_snappy`` venv on ``sys.path``. Idempotent.
 
+    Appended, never prepended.  The SNAP venv ships ``requests``, ``urllib3``,
+    ``certifi`` and friends alongside ``esa_snappy``; prepending would let those
+    shadow the project's own locked versions, which ``asf_search`` depends on.
+    ``esa_snappy`` and ``jpy`` exist nowhere else, so appending still finds them.
+
     Returns the ``site-packages`` directory that was added.
     """
     site_packages = snappy_site_packages()
     entry = str(site_packages)
     if entry not in sys.path:
-        sys.path.insert(0, entry)
+        sys.path.append(entry)
     return site_packages
+
+
+@dataclass(frozen=True)
+class EarthdataCredentials:
+    """NASA Earthdata Login credentials, token preferred over username/password."""
+
+    token: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+def earthdata_credentials() -> EarthdataCredentials | None:
+    """Resolve Earthdata Login credentials, or ``None`` if none are configured.
+
+    A token wins over a username/password pair.  A username without a password
+    counts as unconfigured -- half a credential is not a credential.
+    """
+    token = env_value(EDL_TOKEN_VAR)
+    if token is not None:
+        return EarthdataCredentials(token=token)
+    username = env_value(EDL_USERNAME_VAR)
+    password = env_value(EDL_PASSWORD_VAR)
+    if username is not None and password is not None:
+        return EarthdataCredentials(username=username, password=password)
+    return None

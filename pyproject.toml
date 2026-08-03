@@ -10,10 +10,12 @@ requires-python = ">=3.13"
 dependencies = [
     "asf-search>=7.0",
     "numpy>=2.0",
+    "omegaconf>=2.3",
     "rasterio>=1.3",
     "pyproj>=3.6",
     "shapely>=2.0",
     "scipy>=1.13",
+    "geopandas>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -21,6 +23,7 @@ dev = ["pytest", "pytest-cov"]
 
 [project.scripts]
 install-local = "scripts.install_local:main"
+radar-snap = "radar_snap_lib.snap_ops.cli:main"
 
 [project.urls]
 Homepage = ""
@@ -33,6 +36,22 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/radar_snap_lib"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "snap: requires a working esa_snappy / SNAP install (boots the JVM)",
+]
+
+[tool.radar-snap-lib]
+# Path to the virtual environment that contains `esa_snappy` (created by SNAP's
+# `snappy-conf`). It is NOT installed as a dependency -- radar-snap-lib only puts
+# its site-packages on sys.path at runtime.
+#
+# Override without touching this file (highest precedence first):
+#   1. environment variable  ESA_SNAPPY_VENV=/path/to/esa_snappy_env/.venv
+#   2. a `.env` file in the project root (see .env.example)
+esa-snappy-venv = "/home/kjell/projects/py_projects/esa_snappy_env/.venv"
+
 [tool.ruff]
 line-length = 88
 target-version = "py313"
@@ -40,6 +59,13 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 ignore = []
+
+[tool.ty.environment]
+# esa_snappy lives outside this project's venv (see [tool.radar-snap-lib]);
+# point ty at it so `import esa_snappy` resolves. Adjust alongside esa-snappy-venv.
+extra-paths = [
+    "/home/kjell/projects/py_projects/esa_snappy_env/.venv/lib/python3.13/site-packages",
+]
 
 [dependency-groups]
 dev = [

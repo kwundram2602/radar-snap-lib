@@ -40,7 +40,9 @@ packages = ["src/radar_snap_lib"]
 testpaths = ["tests"]
 markers = [
     "snap: requires a working esa_snappy / SNAP install (boots the JVM)",
+    "network: hits the live ASF API (deselected by default, see addopts)",
 ]
+addopts = "-m 'not network'"
 
 [tool.radar-snap-lib]
 # Path to the virtual environment that contains `esa_snappy` (created by SNAP's

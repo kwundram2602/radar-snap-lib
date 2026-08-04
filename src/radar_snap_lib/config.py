@@ -26,6 +26,19 @@ EDL_TOKEN_VAR = "EARTHDATA_TOKEN"
 EDL_USERNAME_VAR = "EARTHDATA_USERNAME"
 EDL_PASSWORD_VAR = "EARTHDATA_PASSWORD"
 
+__all__ = [
+    "EDL_PASSWORD_VAR",
+    "EDL_TOKEN_VAR",
+    "EDL_USERNAME_VAR",
+    "ENV_VAR",
+    "EarthdataCredentials",
+    "earthdata_credentials",
+    "ensure_esa_snappy",
+    "env_value",
+    "snappy_site_packages",
+    "snappy_venv_path",
+]
+
 
 def _project_root() -> Path | None:
     """Nearest ancestor directory containing a ``pyproject.toml``."""

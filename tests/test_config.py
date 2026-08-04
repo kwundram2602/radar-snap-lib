@@ -60,10 +60,11 @@ class TestEarthdataCredentials:
         assert creds is not None
         assert creds.token == "tok"
 
-    def test_username_and_password(self, monkeypatch):
+    def test_username_and_password(self, monkeypatch, tmp_path):
         monkeypatch.delenv("EARTHDATA_TOKEN", raising=False)
         monkeypatch.setenv("EARTHDATA_USERNAME", "user")
         monkeypatch.setenv("EARTHDATA_PASSWORD", "pass")
+        monkeypatch.setattr(config, "_project_root", lambda: tmp_path)
         creds = config.earthdata_credentials()
         assert creds is not None
         assert (creds.username, creds.password) == ("user", "pass")

@@ -16,6 +16,48 @@ uv sync
 Resolution order is `ESA_SNAPPY_VENV` in the environment, then `.env`, then
 `[tool.radar-snap-lib] esa-snappy-venv` in `pyproject.toml`.
 
+## Searching the ASF archive
+
+Finding scenes works like running a graph: describe it in YAML, validate it
+offline, then execute. There are no command line flags -- every setting,
+including the download target, lives in the config.
+
+```yaml
+# searches/testgebiet.yaml
+aoi: aois/testgebiet.gpkg      # or [10.0, 50.0, 11.0, 51.0], or a WKT string
+start: 2024-01-01
+end: 2024-06-30
+platform: SENTINEL-1
+flight_direction: ASCENDING
+processing_level: SLC
+max_results: 100
+dest: /data/s1
+output: results/testgebiet.geojson
+```
+
+```console
+radar-snap validate searches/testgebiet.yaml
+radar-snap search   searches/testgebiet.yaml
+radar-snap download searches/testgebiet.yaml
+```
+
+A GeoPackage, Shapefile or GeoJSON AOI has all its features unioned and
+reprojected to WGS-84, then simplified as far as the ASF API requires.
+
+Any [`ASFSearchOptions`](https://docs.asf.alaska.edu/asf_search/searching/)
+key is accepted, in ASF's own camelCase (`flightDirection`) or as a snake_case
+alias (`flight_direction`). Validation runs against `asf_search`'s own option
+table, so a typo is caught without a network connection:
+
+```console
+$ radar-snap validate searches/testgebiet.yaml
+1 problem in searches/testgebiet.yaml:
+  - Unknown key 'flightdirection'. Did you mean: flight_direction?
+```
+
+Searching needs no account. Downloading needs NASA Earthdata credentials --
+set `EARTHDATA_TOKEN` in your environment or `.env` (see `.env.example`).
+
 ## Describing a pipeline
 
 One key per operator, its parameters as subkeys. Each node takes the previous

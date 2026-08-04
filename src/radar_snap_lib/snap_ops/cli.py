@@ -71,20 +71,85 @@ def _cmd_describe(args: argparse.Namespace) -> int:
     return 0
 
 
+def _is_pipeline_config(path: Path) -> bool:
+    """A ``pipeline`` key means a graph config; anything else is a search."""
+    from omegaconf import DictConfig, OmegaConf  # noqa: PLC0415
+
+    loaded = OmegaConf.load(path)
+    return isinstance(loaded, DictConfig) and "pipeline" in loaded
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
-    from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, OpsConfig
+    if not Path(args.config).is_file():
+        print(f"Config not found: {args.config}", file=sys.stderr)
+        return 2
+
+    if _is_pipeline_config(args.config):
+        from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, OpsConfig
+
+        try:
+            errors = OpsConfig.load(args.config).validate()
+        except GraphConfigError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        if errors:
+            print(GraphConfigError(errors, str(args.config)), file=sys.stderr)
+            return 1
+    else:
+        from radar_snap_lib.search.SearchConfig import SearchConfig, SearchConfigError
+
+        try:
+            errors = SearchConfig.load(args.config).validate()
+        except SearchConfigError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        if errors:
+            print(SearchConfigError(errors, str(args.config)), file=sys.stderr)
+            return 1
+
+    print(f"{args.config}: OK")
+    return 0
+
+
+def _cmd_search(args: argparse.Namespace) -> int:
+    import radar_snap_lib.search as search_pkg  # noqa: PLC0415
+    from radar_snap_lib.search.SearchConfig import (  # noqa: PLC0415
+        SearchConfig,
+        SearchConfigError,
+    )
 
     try:
-        config = OpsConfig.load(args.config)
-        errors = config.validate()
-    except GraphConfigError as exc:
+        results = search_pkg.search(args.config)
+    except SearchConfigError as exc:
         print(exc, file=sys.stderr)
         return 1
 
-    if errors:
-        print(GraphConfigError(errors, str(args.config)), file=sys.stderr)
+    output = SearchConfig.load(args.config).output
+    where = f", written to {output}" if output is not None else ""
+    print(f"{args.config}: {len(results)} scene(s){where}")
+    if output is None:
+        for product in results:
+            properties = getattr(product, "properties", product)
+            print(f"  {properties.get('fileName', properties.get('sceneName', '?'))}")
+    return 0
+
+
+def _cmd_download(args: argparse.Namespace) -> int:
+    import radar_snap_lib.search as search_pkg  # noqa: PLC0415
+    from radar_snap_lib.search.SearchConfig import SearchConfigError  # noqa: PLC0415
+
+    try:
+        paths = search_pkg.download(args.config)
+    except SearchConfigError as exc:
+        print(exc, file=sys.stderr)
         return 1
-    print(f"{args.config}: OK")
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    print(f"{args.config}: {len(paths)} file(s)")
+    for path in paths:
+        print(f"  {path}")
     return 0
 
 
@@ -128,7 +193,9 @@ def _cmd_gen_registry(_: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="radar-snap",
-        description="Build and run ESA SNAP process graphs from YAML.",
+        description=(
+            "Search the ASF archive and run ESA SNAP process graphs, from YAML."
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -145,9 +212,23 @@ def build_parser() -> argparse.ArgumentParser:
     describe.add_argument("operator")
     describe.set_defaults(func=_cmd_describe)
 
-    validate = sub.add_parser("validate", help="check a config without running it")
+    validate = sub.add_parser(
+        "validate", help="check a config (graph or search) without running it"
+    )
     validate.add_argument("config", type=Path)
     validate.set_defaults(func=_cmd_validate)
+
+    search_cmd = sub.add_parser(
+        "search", help="run an ASF archive search from a config"
+    )
+    search_cmd.add_argument("config", type=Path)
+    search_cmd.set_defaults(func=_cmd_search)
+
+    download_cmd = sub.add_parser(
+        "download", help="search, then download the hits into the config's dest"
+    )
+    download_cmd.add_argument("config", type=Path)
+    download_cmd.set_defaults(func=_cmd_download)
 
     dump = sub.add_parser("dump-xml", help="emit the GPF graph XML for a config")
     dump.add_argument("config", type=Path)

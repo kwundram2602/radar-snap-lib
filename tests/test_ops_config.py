@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from radar_snap_lib.snap_ops.cli import _is_pipeline_config
 from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, OpsConfig
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+GRAPH_EXAMPLES = sorted(p for p in EXAMPLES.glob("*.yaml") if _is_pipeline_config(p))
 
 
 def _config(pipeline: dict, registry, **top) -> OpsConfig:
@@ -236,15 +238,11 @@ class TestGraphConstruction:
 
 
 class TestExamples:
-    @pytest.mark.parametrize(
-        "path", sorted(EXAMPLES.glob("*.yaml")), ids=lambda p: p.name
-    )
+    @pytest.mark.parametrize("path", GRAPH_EXAMPLES, ids=lambda p: p.name)
     def test_example_is_valid(self, path, registry):
         assert OpsConfig.load(path, registry=registry).validate() == []
 
-    @pytest.mark.parametrize(
-        "path", sorted(EXAMPLES.glob("*.yaml")), ids=lambda p: p.name
-    )
+    @pytest.mark.parametrize("path", GRAPH_EXAMPLES, ids=lambda p: p.name)
     def test_example_serialises(self, path, registry):
         root = ET.fromstring(OpsConfig.load(path, registry=registry).to_xml())
         assert root.tag == "graph"
@@ -260,9 +258,7 @@ class TestExamples:
 
 @pytest.mark.snap
 class TestSnapAcceptsGeneratedXml:
-    @pytest.mark.parametrize(
-        "path", sorted(EXAMPLES.glob("*.yaml")), ids=lambda p: p.name
-    )
+    @pytest.mark.parametrize("path", GRAPH_EXAMPLES, ids=lambda p: p.name)
     def test_graph_io_parses(self, path, registry):
         from radar_snap_lib.config import ensure_esa_snappy
 

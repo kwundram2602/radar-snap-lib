@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 import geopandas as gpd
 import pytest
 from shapely import wkt as shapely_wkt
-from shapely.geometry import box
+from shapely.geometry import Polygon, box
 
 from radar_snap_lib.search.aoi import AOIError, SearchBounds, aoi_to_wkt
 
@@ -24,10 +26,23 @@ def gpkg(tmp_path):
 
 
 class TestVectorFiles:
-    def test_features_are_unioned(self, gpkg):
+    def test_disjoint_features_become_one_hulled_polygon(self, gpkg):
+        # ASF accepts exactly one geometry, so validate_wkt convex-hulls
+        # disjoint parts together. The hull spans both boxes, gap included.
         geometry = shapely_wkt.loads(aoi_to_wkt(gpkg))
-        assert geometry.geom_type == "MultiPolygon"
-        assert len(geometry.geoms) == 2
+        assert geometry.geom_type == "Polygon"
+        assert geometry.bounds == (10.0, 50.0, 13.0, 51.0)
+
+    def test_a_contiguous_aoi_is_preserved_exactly(self, tmp_path):
+        path = tmp_path / "concave.gpkg"
+        shape = Polygon([(0, 0), (2, 0), (2, 1), (1, 1), (1, 2), (0, 2)])
+        gpd.GeoDataFrame(geometry=[shape], crs="EPSG:4326").to_file(path, driver="GPKG")
+        assert shapely_wkt.loads(aoi_to_wkt(path)).area == pytest.approx(shape.area)
+
+    def test_merging_is_logged_so_it_is_never_silent(self, gpkg, caplog):
+        with caplog.at_level(logging.WARNING):
+            aoi_to_wkt(gpkg)
+        assert any("CONVEX_HULL" in record.message for record in caplog.records)
 
     def test_accepts_a_string_path(self, gpkg):
         assert aoi_to_wkt(str(gpkg)) == aoi_to_wkt(gpkg)

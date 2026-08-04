@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import asf_search as asf
 from shapely.geometry.base import BaseGeometry
 
 __all__ = ["AOIError", "SearchBounds", "aoi_to_wkt"]
@@ -74,22 +75,14 @@ def aoi_to_wkt(source: str | Path | Sequence[float] | SearchBounds) -> str:
         AOIError: If the source cannot be read or is not valid geometry.
     """
     geometry = _to_geometry(source)
-
-    # Convert geometry object to WKT string if needed
-    if not isinstance(geometry, str):
-        wkt_str = geometry.wkt
-    else:
-        wkt_str = geometry
-
-    # Validate the WKT by attempting to parse it with shapely
     try:
-        from shapely import wkt as shapely_wkt
-
-        shapely_wkt.loads(wkt_str)
-    except Exception as exc:
+        wrapped, _unwrapped, repairs = asf.validate_wkt(geometry)
+    except Exception as exc:  # asf raises ASFWKTError and shapely errors alike
         raise AOIError(f"Invalid AOI geometry: {exc}") from exc
 
-    return wkt_str
+    for repair in repairs:
+        _LOG.warning("AOI adjusted for ASF: %s", repair)
+    return str(wrapped.wkt)
 
 
 def _to_geometry(source: Any) -> BaseGeometry | str:

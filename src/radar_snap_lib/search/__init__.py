@@ -9,5 +9,12 @@ what to look for, validation runs offline, and one call executes it.
 """
 
 from radar_snap_lib.search.aoi import AOIError, SearchBounds, aoi_to_wkt
+from radar_snap_lib.search.SearchConfig import SearchConfig, SearchConfigError
 
-__all__ = ["AOIError", "SearchBounds", "aoi_to_wkt"]
+__all__ = [
+    "AOIError",
+    "SearchBounds",
+    "SearchConfig",
+    "SearchConfigError",
+    "aoi_to_wkt",
+]

@@ -1156,9 +1156,9 @@ keys and snake_case aliases."
 ### Task 4: Search and download execution
 
 **Files:**
-- Create: `src/radar_snap_lib/search/search.py` (deleted in Task 2; this is the new execution layer)
+- Create: `src/radar_snap_lib/search/runner.py` (the execution layer; named to mirror `snap_ops/runner.py`)
 - Modify: `src/radar_snap_lib/search/__init__.py`
-- Test: `tests/test_search.py` (create)
+- Test: `tests/test_search_runner.py` (create)
 
 **Interfaces:**
 - Consumes: `SearchConfig`, `SearchConfigError` from Task 3; `earthdata_credentials`, `EDL_TOKEN_VAR`, `EDL_USERNAME_VAR` from Task 1.
@@ -1167,10 +1167,11 @@ keys and snake_case aliases."
   - `download(config) -> list[Path]`
   - `earthdata_session() -> ASFSession`
 - Does **not** import from `aoi.py`; `SearchBounds` is re-exported by `__init__.py` straight from `aoi.py`.
+- The module is `runner.py`, **not** `search.py`. `__init__.py` exports a function named `search`, and `from radar_snap_lib.search.search import search` would bind that function over the submodule of the same name in the package namespace — after which `from radar_snap_lib.search import search` yields the function and the module becomes unreachable by that path, so no test can patch it. `runner.py` also makes the mirror of `snap_ops/runner.py` literal.
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/test_search.py`:
+Create `tests/test_search_runner.py`:
 
 ```python
 """Tests for search and download execution, with ASF mocked out."""
@@ -1180,7 +1181,7 @@ from __future__ import annotations
 import asf_search as asf
 import pytest
 
-from radar_snap_lib.search import search as search_module
+from radar_snap_lib.search import runner as search_module
 from radar_snap_lib.search.SearchConfig import SearchConfigError
 
 BASE = {
@@ -1320,12 +1321,12 @@ class TestSession:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest tests/test_search.py -v`
-Expected: FAIL — `AttributeError: module 'radar_snap_lib.search.search' has no attribute 'asf'`.
+Run: `uv run pytest tests/test_search_runner.py -v`
+Expected: FAIL — `ImportError: cannot import name 'runner' from 'radar_snap_lib.search'`.
 
-- [ ] **Step 3: Write `search/search.py`**
+- [ ] **Step 3: Write `search/runner.py`**
 
-Create the file (Task 2 deleted the old one):
+Create the file:
 
 ```python
 """Execute ASF archive searches and downloads.
@@ -1362,16 +1363,20 @@ def earthdata_session() -> asf.ASFSession:
         RuntimeError: If no Earthdata credentials are configured.
     """
     credentials = earthdata_credentials()
-    if credentials is None:
-        raise RuntimeError(
-            f"No Earthdata credentials configured. Set {EDL_TOKEN_VAR} (or "
-            f"{EDL_USERNAME_VAR} and its password) in your environment or .env "
-            "file. Register at https://urs.earthdata.nasa.gov/"
-        )
     session = asf.ASFSession()
-    if credentials.token is not None:
-        return session.auth_with_token(credentials.token)
-    return session.auth_with_creds(credentials.username, credentials.password)
+
+    if credentials is not None:
+        if credentials.token is not None:
+            return session.auth_with_token(credentials.token)
+        username, password = credentials.username, credentials.password
+        if username is not None and password is not None:
+            return session.auth_with_creds(username, password)
+
+    raise RuntimeError(
+        f"No Earthdata credentials configured. Set {EDL_TOKEN_VAR} (or "
+        f"{EDL_USERNAME_VAR} and its password) in your environment or .env "
+        "file. Register at https://urs.earthdata.nasa.gov/"
+    )
 
 
 def search(config: ConfigSource, *, write_output: bool = True) -> Any:
@@ -1436,7 +1441,7 @@ Update `src/radar_snap_lib/search/__init__.py`:
 ```python
 from radar_snap_lib.search.aoi import AOIError, SearchBounds, aoi_to_wkt
 from radar_snap_lib.search.SearchConfig import SearchConfig, SearchConfigError
-from radar_snap_lib.search.search import download, earthdata_session, search
+from radar_snap_lib.search.runner import download, earthdata_session, search
 
 __all__ = [
     "AOIError",
@@ -1452,7 +1457,7 @@ __all__ = [
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `uv run pytest tests/test_search.py -v`
+Run: `uv run pytest tests/test_search_runner.py -v`
 Expected: PASS — 11 tests.
 
 Then: `uv run pytest -q`
@@ -1460,13 +1465,13 @@ Expected: PASS.
 
 - [ ] **Step 6: Lint and type-check**
 
-Run: `uv run ruff format src/radar_snap_lib/search tests/test_search.py && uv run ruff check src tests && uv run ty check src`
+Run: `uv run ruff format src/radar_snap_lib/search tests/test_search_runner.py && uv run ruff check src tests && uv run ty check src`
 Expected: no errors.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/radar_snap_lib/search tests/test_search.py
+git add src/radar_snap_lib/search tests/test_search_runner.py
 git commit -m "feat: run ASF searches and downloads from a config
 
 Searching needs no credentials; only download builds an authenticated

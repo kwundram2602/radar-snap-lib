@@ -71,7 +71,7 @@ and rejected as disproportionate — the conflict is one line of path ordering.
 | `search/__init__.py` | public exports (currently missing entirely) | `snap_ops/__init__.py` |
 | `search/aoi.py` | AOI sources → search WKT | — |
 | `search/SearchConfig.py` | OmegaConf front end, validation, → `ASFSearchOptions` | `snap_ops/OpsConfig.py` |
-| `search/search.py` | execution: `search()`, `download()` | `snap_ops/runner.py` |
+| `search/runner.py` | execution: `search()`, `download()` | `snap_ops/runner.py` |
 
 `SearchConfigError` follows `GraphConfigError`: it carries a list of every
 problem found plus the source file, and formats them as a single message.
@@ -228,7 +228,7 @@ and the same resolution order serves Earthdata credentials:
 The session is built **only** in `download()`. `search()` needs no credentials
 and stays usable without any Earthdata account.
 
-## Execution (`search/search.py`)
+## Execution (`search/runner.py`)
 
 ```python
 def search(config) -> ASFSearchResults      # validates, then asf.search(**opts)
@@ -281,10 +281,10 @@ optional live ASF queries, deselected by default.
 | `src/radar_snap_lib/search/__init__.py` | new — exports |
 | `src/radar_snap_lib/search/aoi.py` | new |
 | `src/radar_snap_lib/search/SearchConfig.py` | new |
-| `src/radar_snap_lib/search/search.py` | rewritten |
+| `src/radar_snap_lib/search/runner.py` | new (replaces the old `search.py`) |
 | `src/radar_snap_lib/config.py` | append not insert; generalise dotenv lookup; Earthdata credentials |
 | `src/radar_snap_lib/snap_ops/cli.py` | `search` / `download` subcommands; `validate` sniffing |
 | `pyproject.toml` | `geopandas>=1.0`; `network` marker |
 | `.env.example` | Earthdata credentials |
 | `examples/search_s1_slc.yaml` | new — worked example |
-| `tests/test_aoi.py`, `tests/test_search_config.py`, `tests/test_search.py`, `tests/test_config.py` | new |
+| `tests/test_aoi.py`, `tests/test_search_config.py`, `tests/test_search_runner.py`, `tests/test_config.py` | new |

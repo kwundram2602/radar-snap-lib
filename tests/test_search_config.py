@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import importlib
+
+import geopandas as gpd
 import pytest
+from shapely.geometry import box
 
 from radar_snap_lib.search.SearchConfig import (
     ALIASES,
@@ -19,6 +23,19 @@ BASE = {
 }
 
 
+@pytest.fixture
+def gpkg(tmp_path):
+    """A one-feature GeoPackage in EPSG:4326."""
+    path = tmp_path / "aoi.gpkg"
+    frame = gpd.GeoDataFrame(
+        {"name": ["area"]},
+        geometry=[box(10.0, 50.0, 11.0, 51.0)],
+        crs="EPSG:4326",
+    )
+    frame.to_file(path, driver="GPKG")
+    return path
+
+
 class TestAliases:
     def test_snake_case_maps_to_camel_case(self):
         assert ALIASES["flight_direction"] == "flightDirection"
@@ -27,6 +44,14 @@ class TestAliases:
 
     def test_no_alias_collisions(self):
         assert len(set(ALIASES.values())) == len(ALIASES)
+
+    def test_every_asf_key_kept_its_own_alias(self):
+        # A dict comprehension cannot show a collision in its own values --
+        # a clash silently overwrites the earlier entry instead. Only the
+        # count against the source map catches that.
+        from asf_search.ASFSearchOptions.validator_map import validator_map
+
+        assert len(ALIASES) == len(validator_map)
 
     def test_camel_case_still_accepted(self):
         config = SearchConfig.load({**BASE, "flightDirection": "ASCENDING"})
@@ -131,6 +156,27 @@ class TestSearchOptions:
 
     def test_dest_is_none_when_unset(self):
         assert SearchConfig.load(BASE).dest is None
+
+    def test_aoi_is_resolved_only_once(self, gpkg, monkeypatch):
+        # validate() and search_options() must share one resolution -- a
+        # vector-file AOI is expensive to read and reproject, and each
+        # resolution logs a WARNING for every geometry repair ASF makes.
+        search_config_module = importlib.import_module(
+            "radar_snap_lib.search.SearchConfig"
+        )
+        calls = []
+        real_aoi_to_wkt = search_config_module.aoi_to_wkt
+
+        def counting_aoi_to_wkt(source):
+            calls.append(source)
+            return real_aoi_to_wkt(source)
+
+        monkeypatch.setattr(search_config_module, "aoi_to_wkt", counting_aoi_to_wkt)
+
+        config = SearchConfig.load({**BASE, "aoi": str(gpkg)})
+        config.search_options()
+
+        assert len(calls) == 1
 
 
 class TestYamlLoading:

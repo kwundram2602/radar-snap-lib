@@ -9,6 +9,7 @@ what to look for, validation runs offline, and one call executes it.
 """
 
 from radar_snap_lib.search.aoi import AOIError, SearchBounds, aoi_to_wkt
+from radar_snap_lib.search.runner import download, earthdata_session, search
 from radar_snap_lib.search.SearchConfig import SearchConfig, SearchConfigError
 
 __all__ = [
@@ -17,4 +18,7 @@ __all__ = [
     "SearchConfig",
     "SearchConfigError",
     "aoi_to_wkt",
+    "download",
+    "earthdata_session",
+    "search",
 ]

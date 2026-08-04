@@ -42,9 +42,6 @@ class TestAliases:
         assert ALIASES["max_results"] == "maxResults"
         assert ALIASES["processing_level"] == "processingLevel"
 
-    def test_no_alias_collisions(self):
-        assert len(set(ALIASES.values())) == len(ALIASES)
-
     def test_every_asf_key_kept_its_own_alias(self):
         # A dict comprehension cannot show a collision in its own values --
         # a clash silently overwrites the earlier entry instead. Only the

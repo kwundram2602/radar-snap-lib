@@ -48,7 +48,7 @@ def earthdata_session() -> asf.ASFSession:
     )
 
 
-def search(config: ConfigSource, *, write_output: bool = True) -> Any:
+def search(config: ConfigSource, *, write_output: bool = True) -> asf.ASFSearchResults:
     """Validate a search config, then run it against the ASF archive.
 
     Args:

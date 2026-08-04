@@ -14,6 +14,21 @@ BASE = {
 }
 
 
+class FakeProduct:
+    """Minimal stand-in for an ASFProduct: enough for both the file-name
+    lookup in download() and the geojson writer in write_results()."""
+
+    def __init__(self, name: str) -> None:
+        self.properties = {"fileName": name}
+
+    def geojson(self) -> dict:
+        return {
+            "type": "Feature",
+            "geometry": None,
+            "properties": dict(self.properties),
+        }
+
+
 class FakeResults(asf.ASFSearchResults):
     """A real ASFSearchResults (so the geojson writer works) that records
     download calls instead of making them."""
@@ -23,14 +38,16 @@ class FakeResults(asf.ASFSearchResults):
         self.download_calls = []
 
     def download(self, path, session=None, processes=1, **kwargs):
-        self.download_calls.append({"path": path, "processes": processes})
+        self.download_calls.append(
+            {"path": path, "session": session, "processes": processes}
+        )
 
 
 @pytest.fixture
 def captured(monkeypatch):
     """Capture the options handed to asf.search and return canned results."""
     calls = {}
-    results = FakeResults()
+    results = FakeResults([FakeProduct("S1A_scene.zip")])
 
     def fake_search(**kwargs):
         calls.update(kwargs)
@@ -70,7 +87,9 @@ class TestSearch:
         target = tmp_path / "out" / "results.geojson"
         search_module.search({**BASE, "output": str(target)})
         assert target.is_file()
-        assert "FeatureCollection" in target.read_text()
+        content = target.read_text()
+        assert "FeatureCollection" in content
+        assert "S1A_scene.zip" in content
 
     def test_write_output_false_skips_the_file(self, captured, tmp_path):
         target = tmp_path / "results.geojson"
@@ -85,10 +104,13 @@ class TestDownload:
             search_module, "earthdata_session", lambda: "session-object"
         )
         dest = tmp_path / "scenes"
-        search_module.download({**BASE, "dest": str(dest), "processes": 3})
+        paths = search_module.download({**BASE, "dest": str(dest), "processes": 3})
 
         assert dest.is_dir()
-        assert results.download_calls == [{"path": str(dest), "processes": 3}]
+        assert paths == [dest / "S1A_scene.zip"]
+        assert results.download_calls == [
+            {"path": str(dest), "session": "session-object", "processes": 3}
+        ]
 
     def test_missing_dest_is_a_config_error(self, captured):
         with pytest.raises(SearchConfigError, match="dest"):

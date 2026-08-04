@@ -699,8 +699,13 @@ class TestAliases:
         assert ALIASES["max_results"] == "maxResults"
         assert ALIASES["processing_level"] == "processingLevel"
 
-    def test_no_alias_collisions(self):
-        assert len(set(ALIASES.values())) == len(ALIASES)
+    def test_every_asf_key_kept_its_own_alias(self):
+        # A dict comprehension cannot show a collision in its own values --
+        # a clash silently overwrites the earlier entry instead. Only the
+        # count against the source map catches that.
+        from asf_search.ASFSearchOptions.validator_map import validator_map
+
+        assert len(ALIASES) == len(validator_map)
 
     def test_camel_case_still_accepted(self):
         config = SearchConfig.load({**BASE, "flightDirection": "ASCENDING"})
@@ -1017,6 +1022,16 @@ class SearchConfig:
 
     def validate(self) -> list[str]:
         """Check the config offline. An empty list means it is valid."""
+        return self._check()[1]
+
+    def _check(self) -> tuple[str | None, list[str]]:
+        """Validate, returning the resolved AOI WKT alongside the errors.
+
+        Resolving an AOI means reading a vector file, reprojecting it and
+        handing it to ASF for repair -- too expensive to do twice, and doing
+        it twice would log every geometry repair twice as well.  So the one
+        resolution happens here and ``search_options`` reuses the result.
+        """
         options, errors = self._canonical()
         raw = self._raw()
 
@@ -1026,31 +1041,33 @@ class SearchConfig:
             except ValueError as exc:
                 errors.append(f"{key}: {exc}")
 
-        errors.extend(self._check_geometry(raw, options))
+        wkt, geometry_errors = self._check_geometry(raw, options)
+        errors.extend(geometry_errors)
         errors.extend(self._check_output(raw))
-        return errors
+        return wkt, errors
 
-    def _check_geometry(self, raw: dict[str, Any], options: dict[str, Any]) -> list[str]:
-        errors: list[str] = []
+    def _check_geometry(
+        self, raw: dict[str, Any], options: dict[str, Any]
+    ) -> tuple[str | None, list[str]]:
         aoi = raw.get("aoi")
         overlap = sorted(GEOMETRY_KEYS & set(options))
 
         if aoi is not None and overlap:
-            errors.append(
+            return None, [
                 f"'aoi' cannot be combined with {', '.join(overlap)}. "
                 "Use one geometry source."
-            )
-        elif aoi is None and not overlap:
-            errors.append(
+            ]
+        if aoi is None:
+            if overlap:
+                return None, []
+            return None, [
                 "No search geometry: set 'aoi' to a vector file, four numbers, "
                 "or a WKT string."
-            )
-        elif aoi is not None:
-            try:
-                aoi_to_wkt(_plain(aoi))
-            except AOIError as exc:
-                errors.append(f"'aoi': {exc}")
-        return errors
+            ]
+        try:
+            return aoi_to_wkt(_plain(aoi)), []
+        except AOIError as exc:
+            return None, [f"'aoi': {exc}"]
 
     def _check_output(self, raw: dict[str, Any]) -> list[str]:
         value = raw.get("output")
@@ -1066,15 +1083,14 @@ class SearchConfig:
 
     def search_options(self) -> dict[str, Any]:
         """Validate, then return the keyword arguments for ``asf.search``."""
-        errors = self.validate()
+        wkt, errors = self._check()
         if errors:
             raise SearchConfigError(errors, self.source)
 
         options, _ = self._canonical()
         options = {key: _plain(value) for key, value in options.items()}
-        aoi = self._raw().get("aoi")
-        if aoi is not None:
-            options["intersectsWith"] = aoi_to_wkt(_plain(aoi))
+        if wkt is not None:
+            options["intersectsWith"] = wkt
         return options
 
     # -- result output ----------------------------------------------------- #

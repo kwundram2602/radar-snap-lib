@@ -186,9 +186,24 @@ Dispatch by type:
 - **string** — treated as WKT, straight to `asf.validate_wkt()`
 
 `asf.validate_wkt(aoi)` returns `(wrapped, unwrapped, repairs)`. The design uses
-`wrapped` (antimeridian-correct) and logs each `RepairEntry` at INFO, so a
+`wrapped` (antimeridian-correct) and logs each `RepairEntry` at WARNING, so a
 simplified or repaired geometry is visible rather than silent — ASF rejects
 overly complex geometries, and this is where that gets resolved.
+
+**What that costs, measured.** The ASF API accepts exactly one geometry, so
+`validate_wkt` reduces whatever it is handed to a single shape:
+
+| AOI | Result |
+| --- | --- |
+| one contiguous polygon | unchanged, no repairs |
+| a concave outline | preserved exactly (area in = area out) |
+| two touching parts | dissolved into one polygon, no area change |
+| two disjoint parts | `CONVEX_HULL_INDIVIDUAL` — one polygon spanning both, **gap included** |
+
+Only the last row loses fidelity, and it is an ASF constraint rather than a
+choice this library makes. Ruled on 2026-08-04: keep `validate_wkt`, and log
+every repair at WARNING so a merged AOI is never silent. A test that expects a
+`MultiPolygon` to survive `aoi_to_wkt` contradicts this and must not be written.
 
 A file whose CRS is undefined is a validation error, not an assumption of 4326.
 

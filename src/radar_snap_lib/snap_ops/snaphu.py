@@ -17,6 +17,7 @@ own bundled reference graphs and tool-adapter templates.
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +31,7 @@ __all__ = [
     "find_exported_product",
     "find_unwrapped_product",
     "parse_command",
+    "run_snaphu",
     "split_at_snaphu",
 ]
 
@@ -95,6 +97,37 @@ def find_unwrapped_product(target_folder: Path) -> Path:
         "UnwPhase_*.snaphu.hdr",
         what="unwrapped UnwPhase_*.snaphu.hdr output",
     )
+
+
+def run_snaphu(
+    conf_path: Path, *, snaphu_bin: str = "snaphu", quiet: bool = False
+) -> subprocess.CompletedProcess[bytes]:
+    """Run ``snaphu`` with the command recorded in ``conf_path``.
+
+    Runs with ``conf_path.parent`` as the working directory, matching where
+    ``SnaphuExport`` wrote the conf file and its referenced input. Raises
+    ``RuntimeError`` -- not the raw ``subprocess`` exceptions -- so callers
+    get one exception type to catch, with the binary name or captured
+    stderr already in the message.
+    """
+    command = [snaphu_bin, *parse_command(conf_path)]
+    try:
+        return subprocess.run(
+            command,
+            cwd=conf_path.parent,
+            check=True,
+            capture_output=quiet,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"snaphu binary not found: {snaphu_bin!r}. Install snaphu and ensure "
+            f"it is on PATH, or pass a different snaphu_bin."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode(errors="replace") if exc.stderr else ""
+        raise RuntimeError(
+            f"snaphu exited with code {exc.returncode}: {' '.join(command)}\n{stderr}"
+        ) from exc
 
 
 @dataclass

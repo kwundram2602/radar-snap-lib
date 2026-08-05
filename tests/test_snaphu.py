@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from radar_snap_lib.snap_ops.snaphu import (
     find_exported_product,
     find_unwrapped_product,
     parse_command,
+    run_snaphu,
     split_at_snaphu,
 )
 
@@ -200,3 +202,61 @@ class TestFindUnwrappedProduct:
     def test_raises_when_missing(self, tmp_path: Path):
         with pytest.raises(RuntimeError, match="No unwrapped"):
             find_unwrapped_product(tmp_path)
+
+
+class TestRunSnaphu:
+    def test_invokes_the_parsed_command_in_the_conf_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        conf = tmp_path / "snaphu.conf"
+        conf.write_text(CONF_TEXT, encoding="utf-8")
+
+        calls: list[dict] = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append({"cmd": cmd, "kwargs": kwargs})
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        run_snaphu(conf, snaphu_bin="snaphu")
+
+        assert len(calls) == 1
+        assert calls[0]["cmd"] == [
+            "snaphu",
+            "-f",
+            "snaphu.conf",
+            "Phase_ifg_srd_02Apr2026_13Jan2024.snaphu.img",
+            "500",
+        ]
+        assert calls[0]["kwargs"]["cwd"] == tmp_path
+
+    def test_missing_binary_raises_a_clear_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        conf = tmp_path / "snaphu.conf"
+        conf.write_text(CONF_TEXT, encoding="utf-8")
+
+        def fake_run(cmd, **kwargs):
+            raise FileNotFoundError(cmd[0])
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        with pytest.raises(RuntimeError, match="snaphu binary not found"):
+            run_snaphu(conf, snaphu_bin="snaphu")
+
+    def test_nonzero_exit_raises_with_stderr(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        conf = tmp_path / "snaphu.conf"
+        conf.write_text(CONF_TEXT, encoding="utf-8")
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.CalledProcessError(
+                returncode=1, cmd=cmd, output=b"", stderr=b"bad tile geometry"
+            )
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        with pytest.raises(RuntimeError, match="bad tile geometry"):
+            run_snaphu(conf, snaphu_bin="snaphu")

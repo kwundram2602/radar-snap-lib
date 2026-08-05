@@ -90,11 +90,31 @@ class TestValidationErrors:
             _node("read", "Read"),
             _node("snaphu_export", "SnaphuExport", ["read"]),
             _node("snaphu_import", "SnaphuImport", ["snaphu_export"]),
-            # 'stray' feeds both a graph_a node and a graph_b node directly.
+            # 'stray' has no sources, so it is never an ancestor of
+            # snaphu_export; it is only referenced by 'write' (a descendant
+            # of snaphu_import), so it lands in neither graph_a_ids nor
+            # graph_b_ids -- this hits the "uncovered" branch, not "overlap".
             _node("stray", "Read"),
             _node("write", "Write", ["snaphu_import", "stray"]),
         ]
         with pytest.raises(GraphConfigError, match="stray"):
+            split_at_snaphu(nodes)
+
+    def test_node_reachable_from_both_export_ancestry_and_import_descendants(self):
+        # 'x' is wired into a genuine cycle: snaphu_export depends on it
+        # directly (making it an ancestor of snaphu_export, i.e. a
+        # graph_a_ids member), and it in turn depends on snaphu_import
+        # (making it a descendant of snaphu_import, i.e. a graph_b_ids
+        # member too). This is the only way to land a node in both sets
+        # simultaneously, so it genuinely exercises the "overlap" branch
+        # rather than the "uncovered" branch above.
+        nodes = [
+            _node("read", "Read"),
+            _node("x", "Read", ["snaphu_import"]),
+            _node("snaphu_export", "SnaphuExport", ["read", "x"]),
+            _node("snaphu_import", "SnaphuImport", ["snaphu_export"]),
+        ]
+        with pytest.raises(GraphConfigError, match="reachable from both sides"):
             split_at_snaphu(nodes)
 
     def test_node_reachable_from_neither_half(self):

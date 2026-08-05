@@ -111,10 +111,14 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
     if _is_pipeline_config(loaded):
         from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, OpsConfig
+        from radar_snap_lib.snap_ops.snaphu import split_at_snaphu
 
         try:
             config = OpsConfig.load(loaded, source=str(args.config))
-            errors = config.validate()
+            nodes = config.parse()
+            errors = config.validate(nodes)
+            if not errors:
+                split_at_snaphu(nodes)
         except GraphConfigError as exc:
             print(exc, file=sys.stderr)
             return 1

@@ -41,6 +41,22 @@ class TestValidateRouting:
         assert cli.main(["validate", str(path)]) == 1
         assert "bogus" in capsys.readouterr().err
 
+    def test_bad_snaphu_split_fails_without_a_jvm(self, tmp_path, capsys):
+        path = tmp_path / "p.yaml"
+        path.write_text(
+            "pipeline:\n"
+            "  Read:\n"
+            "    file: in.zip\n"
+            "  SnaphuExport:\n"
+            "    targetFolder: /tmp/snaphu_work\n"
+            "  SnaphuExport2:\n"
+            "    op: SnaphuExport\n"
+            "    sources: Read\n"
+            "    targetFolder: /tmp/snaphu_work2\n"
+        )
+        assert cli.main(["validate", str(path)]) == 1
+        assert "exactly one 'SnaphuExport'" in capsys.readouterr().err
+
 
 class TestSearchCommand:
     def test_calls_search_and_reports_the_count(self, tmp_path, monkeypatch, capsys):

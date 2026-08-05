@@ -10,8 +10,12 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from radar_snap_lib.snap_ops.registry import Registry, load_registry
+
+if TYPE_CHECKING:
+    from omegaconf import DictConfig
 
 __all__ = ["main"]
 
@@ -71,24 +75,46 @@ def _cmd_describe(args: argparse.Namespace) -> int:
     return 0
 
 
-def _is_pipeline_config(path: Path) -> bool:
+class ConfigLoadError(Exception):
+    """Raised when a config file cannot be found or parsed."""
+
+
+def _load_source(path: Path) -> DictConfig:
+    """Read and parse a config file, or raise ConfigLoadError with a clean message."""
+    from omegaconf import DictConfig, OmegaConf  # noqa: PLC0415
+
+    if not path.is_file():
+        raise ConfigLoadError(f"Config not found: {path}")
+    try:
+        loaded = OmegaConf.load(path)
+    except Exception as exc:  # yaml.YAMLError and friends
+        raise ConfigLoadError(f"Cannot parse {path}: {exc}") from exc
+    if not isinstance(loaded, DictConfig):
+        raise ConfigLoadError(f"Config root must be a mapping: {path}")
+    return loaded
+
+
+def _is_pipeline_config(source: Path | DictConfig) -> bool:
     """A ``pipeline`` key means a graph config; anything else is a search."""
     from omegaconf import DictConfig, OmegaConf  # noqa: PLC0415
 
-    loaded = OmegaConf.load(path)
+    loaded = source if isinstance(source, DictConfig) else OmegaConf.load(source)
     return isinstance(loaded, DictConfig) and "pipeline" in loaded
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
-    if not Path(args.config).is_file():
-        print(f"Config not found: {args.config}", file=sys.stderr)
+    try:
+        loaded = _load_source(Path(args.config))
+    except ConfigLoadError as exc:
+        print(exc, file=sys.stderr)
         return 2
 
-    if _is_pipeline_config(args.config):
+    if _is_pipeline_config(loaded):
         from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, OpsConfig
 
         try:
-            errors = OpsConfig.load(args.config).validate()
+            config = OpsConfig.load(loaded, source=str(args.config))
+            errors = config.validate()
         except GraphConfigError as exc:
             print(exc, file=sys.stderr)
             return 1
@@ -99,7 +125,8 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         from radar_snap_lib.search.SearchConfig import SearchConfig, SearchConfigError
 
         try:
-            errors = SearchConfig.load(args.config).validate()
+            config = SearchConfig.load(loaded, source=str(args.config))
+            errors = config.validate()
         except SearchConfigError as exc:
             print(exc, file=sys.stderr)
             return 1
@@ -113,33 +140,50 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
 def _cmd_search(args: argparse.Namespace) -> int:
     import radar_snap_lib.search as search_pkg  # noqa: PLC0415
+    from radar_snap_lib.search.runner import product_file_name  # noqa: PLC0415
     from radar_snap_lib.search.SearchConfig import (  # noqa: PLC0415
         SearchConfig,
         SearchConfigError,
     )
 
     try:
-        results = search_pkg.search(args.config)
+        loaded = _load_source(Path(args.config))
+    except ConfigLoadError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+
+    config = SearchConfig.load(loaded, source=str(args.config))
+    try:
+        results = search_pkg.search(config)
     except SearchConfigError as exc:
         print(exc, file=sys.stderr)
         return 1
 
-    output = SearchConfig.load(args.config).output
+    output = config.output
     where = f", written to {output}" if output is not None else ""
     print(f"{args.config}: {len(results)} scene(s){where}")
     if output is None:
         for product in results:
-            properties = getattr(product, "properties", product)
-            print(f"  {properties.get('fileName', properties.get('sceneName', '?'))}")
+            print(f"  {product_file_name(product, default='?')}")
     return 0
 
 
 def _cmd_download(args: argparse.Namespace) -> int:
     import radar_snap_lib.search as search_pkg  # noqa: PLC0415
-    from radar_snap_lib.search.SearchConfig import SearchConfigError  # noqa: PLC0415
+    from radar_snap_lib.search.SearchConfig import (  # noqa: PLC0415
+        SearchConfig,
+        SearchConfigError,
+    )
 
     try:
-        paths = search_pkg.download(args.config)
+        loaded = _load_source(Path(args.config))
+    except ConfigLoadError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+
+    config = SearchConfig.load(loaded, source=str(args.config))
+    try:
+        paths = search_pkg.download(config)
     except SearchConfigError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -157,7 +201,13 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
     from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, OpsConfig
 
     try:
-        xml = OpsConfig.load(args.config).to_xml(args.output)
+        loaded = _load_source(Path(args.config))
+    except ConfigLoadError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+
+    try:
+        xml = OpsConfig.load(loaded, source=str(args.config)).to_xml(args.output)
     except GraphConfigError as exc:
         print(exc, file=sys.stderr)
         return 1

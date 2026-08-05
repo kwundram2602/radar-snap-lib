@@ -116,6 +116,37 @@ class TestDownload:
         with pytest.raises(SearchConfigError, match="dest"):
             search_module.download(BASE)
 
+    def test_missing_dest_and_a_bad_key_are_reported_together(self, captured):
+        with pytest.raises(SearchConfigError) as excinfo:
+            search_module.download({**BASE, "bogus": 1})
+        assert any("dest" in error for error in excinfo.value.errors)
+        assert any("bogus" in error for error in excinfo.value.errors)
+
+    def test_config_is_parsed_only_once(self, captured, monkeypatch, tmp_path):
+        from radar_snap_lib.search.SearchConfig import SearchConfig
+
+        dest = tmp_path / "scenes"
+        path = tmp_path / "s.yaml"
+        path.write_text(
+            "aoi: POLYGON((10 50, 11 50, 11 51, 10 51, 10 50))\n"
+            "platform: SENTINEL-1\n"
+            f"dest: {dest}\n"
+        )
+        monkeypatch.setattr(
+            search_module, "earthdata_session", lambda: "session-object"
+        )
+
+        calls = []
+        original_load = SearchConfig.load.__func__
+
+        def counting_load(cls, config, **kwargs):
+            calls.append(config)
+            return original_load(cls, config, **kwargs)
+
+        monkeypatch.setattr(SearchConfig, "load", classmethod(counting_load))
+        search_module.download(path)
+        assert len(calls) == 1
+
 
 class TestSession:
     def test_token_credentials(self, monkeypatch):

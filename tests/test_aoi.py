@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 import geopandas as gpd
@@ -63,10 +64,48 @@ class TestVectorFiles:
             aoi_to_wkt(tmp_path / "nope.gpkg")
 
     def test_missing_crs_raises(self, tmp_path):
-        path = tmp_path / "nocrs.geojson"
-        gpd.GeoDataFrame(geometry=[box(10.0, 50.0, 11.0, 51.0)]).to_file(path)
+        # GeoJSON has no way to express "no CRS" -- RFC 7946 mandates WGS-84
+        # for any file that omits the "crs" member -- so this is only
+        # reachable for formats that carry real (possibly absent) metadata.
+        path = tmp_path / "nocrs.gpkg"
+        gpd.GeoDataFrame(geometry=[box(10.0, 50.0, 11.0, 51.0)]).to_file(
+            path, driver="GPKG"
+        )
         with pytest.raises(AOIError, match="no CRS"):
             aoi_to_wkt(path)
+
+    def test_rfc7946_geojson_without_crs_member_is_accepted(self, tmp_path):
+        # RFC 7946 deprecates the "crs" member and mandates WGS-84 for any
+        # GeoJSON that omits it -- the shape emitted by QGIS, ogr2ogr, and
+        # geojson.io. geopandas already infers EPSG:4326 correctly here.
+        path = tmp_path / "standard.geojson"
+        path.write_text(
+            json.dumps(
+                {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {
+                            "type": "Feature",
+                            "properties": {},
+                            "geometry": {
+                                "type": "Polygon",
+                                "coordinates": [
+                                    [
+                                        [10.0, 50.0],
+                                        [11.0, 50.0],
+                                        [11.0, 51.0],
+                                        [10.0, 51.0],
+                                        [10.0, 50.0],
+                                    ]
+                                ],
+                            },
+                        }
+                    ],
+                }
+            )
+        )
+        geometry = shapely_wkt.loads(aoi_to_wkt(path))
+        assert geometry.bounds == (10.0, 50.0, 11.0, 51.0)
 
     def test_empty_file_raises(self, tmp_path):
         path = tmp_path / "empty.gpkg"

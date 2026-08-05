@@ -92,7 +92,7 @@ class TestParsing:
             OpsConfig.load({"vars": {}}, registry=registry).parse()
 
     def test_missing_file(self, registry):
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(GraphConfigError, match="not found"):
             OpsConfig.load("does/not/exist.yaml", registry=registry)
 
 

@@ -1,0 +1,56 @@
+# Sentinel-1 SLC -> calibrated, terrain-corrected sigma0 backscatter.
+#
+#   radar-snap validate examples/s1_slc_standard.yaml
+#   radar-snap run examples/s1_slc_standard.yaml --dump-xml /tmp/graph.xml
+#
+# Standard TOPSAR chain: split the swath, calibrate, deburst, multilook, then
+# geocode. A linear chain, so nothing needs explicit wiring.
+
+vars:
+  scene: results/s1/wue/S1A_IW_SLC__1SDV_20240627T171631_20240627T171658_054512_06A24B_4234.zip
+  output: results/s1/out/sigma0_tc_IW3_sub.tif
+  subswath: IW3
+  polarisation: VV
+  # AOI: a vector file (GeoPackage, Shapefile, GeoJSON), four numbers
+  # [W, S, E, N], or a WKT string -- same formats as the search config.
+  aoi: /home/kjell/wue_aoi.gpkg
+
+pipeline:
+  Read:
+    file: ${vars.scene}
+
+  Apply-Orbit-File:
+    orbitType: Sentinel Precise (Auto Download)
+    continueOnFail: true
+
+  TOPSAR-Split:
+    subswath: ${vars.subswath}
+    selectedPolarisations: ${vars.polarisation}
+    # Spatial subset: restrict to bursts intersecting the AOI above.
+    # Doing it here -- before deburst -- is the safe way to subset TOPSAR
+    # SLC data; a pixel/geo subset on raw SLC can split a burst in two.
+    # ${aoi_wkt:...} parses vars.aoi (file, bbox, or WKT) into WKT inline.
+    wktAoi: ${aoi_wkt:${vars.aoi}}
+
+  Calibration:
+    outputSigmaBand: true
+    selectedPolarisations: ${vars.polarisation}
+
+  TOPSAR-Deburst:
+    selectedPolarisations: ${vars.polarisation}
+
+  Multilook:
+    nRgLooks: 4
+    nAzLooks: 1
+    outputIntensity: true
+
+  Terrain-Correction:
+    demName: Copernicus 30m Global DEM
+    imgResamplingMethod: BILINEAR_INTERPOLATION
+    pixelSpacingInMeter: 10.0
+    mapProjection: WGS84(DD)
+    saveSelectedSourceBand: true
+
+  Write:
+    file: ${vars.output}
+    formatName: GeoTIFF

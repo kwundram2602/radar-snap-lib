@@ -54,7 +54,7 @@ class TestSearchCommand:
 
         monkeypatch.setattr("radar_snap_lib.search.search", fake_search)
         assert cli.main(["search", str(path)]) == 0
-        assert str(seen["config"]) == str(path)
+        assert seen["config"].source == str(path)
         assert "2" in capsys.readouterr().out
 
     def test_config_error_returns_one(self, tmp_path, capsys):
@@ -74,6 +74,24 @@ class TestDownloadCommand:
         )
         assert cli.main(["download", str(path)]) == 0
         assert "a.zip" in capsys.readouterr().out
+
+
+class TestConfigLoadErrors:
+    @pytest.mark.parametrize("command", ["search", "download", "validate"])
+    def test_missing_config_returns_two(self, command, tmp_path, capsys):
+        path = tmp_path / "nope.yaml"
+        assert cli.main([command, str(path)]) == 2
+        err = capsys.readouterr().err
+        assert "not found" in err
+        assert "Traceback" not in err
+
+    @pytest.mark.parametrize("command", ["search", "download", "validate"])
+    def test_malformed_yaml_returns_two(self, command, tmp_path, capsys):
+        path = tmp_path / "bad.yaml"
+        path.write_text("aoi: [unclosed\n")
+        assert cli.main([command, str(path)]) == 2
+        err = capsys.readouterr().err
+        assert "Traceback" not in err
 
 
 class TestNoFlags:

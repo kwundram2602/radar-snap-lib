@@ -6,9 +6,10 @@ dist/
 wheels/
 *.egg-info
 old/
+.vscode
 # Virtual environments
 .venv
-
+results/
 # Local machine config (see .env.example)
 .env
 .claude

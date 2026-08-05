@@ -20,7 +20,7 @@ from radar_snap_lib.snap_ops.registry import Registry
 __all__ = ["execute_xml", "run_graph"]
 
 
-def _graph_classes() -> tuple[Any, Any, Any, Any]:
+def _graph_classes() -> tuple[Any, Any, Any, Any, Any, Any]:
     """Import the SNAP graph API, ensuring the snappy venv is on ``sys.path``."""
     from radar_snap_lib.config import ensure_esa_snappy
 
@@ -32,6 +32,8 @@ def _graph_classes() -> tuple[Any, Any, Any, Any]:
         jpy.get_type("org.esa.snap.core.gpf.graph.GraphProcessor"),
         jpy.get_type("java.io.StringReader"),
         jpy.get_type("com.bc.ceres.core.ProgressMonitor"),
+        jpy.get_type("com.bc.ceres.core.PrintWriterConciseProgressMonitor"),
+        jpy.get_type("java.lang.System"),
     )
 
 
@@ -42,15 +44,12 @@ def execute_xml(xml: str, *, quiet: bool = False) -> None:
         xml: A complete ``<graph>`` document.
         quiet: Suppress SNAP's progress output.
     """
-    graph_io, graph_processor, string_reader, progress_monitor = _graph_classes()
+    graph_io, graph_processor, string_reader, progress_monitor, console_monitor, system = _graph_classes()
 
     graph = graph_io.read(string_reader(xml))
     processor = graph_processor()
-    monitor = progress_monitor.NULL if quiet else None
-    if monitor is None:
-        processor.executeGraph(graph)
-    else:
-        processor.executeGraph(graph, monitor)
+    monitor = progress_monitor.NULL if quiet else console_monitor(system.out)
+    processor.executeGraph(graph, monitor)
 
 
 def run_graph(

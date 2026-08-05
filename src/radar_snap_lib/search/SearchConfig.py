@@ -26,7 +26,6 @@ can be checked without a network connection or an Earthdata account.
 
 from __future__ import annotations
 
-import difflib
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -34,8 +33,9 @@ from typing import Any
 
 import asf_search as asf
 from asf_search.ASFSearchOptions.validator_map import validate, validator_map
-from omegaconf import DictConfig, ListConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
+from radar_snap_lib._omegaconf import _plain, _suggest
 from radar_snap_lib.search.aoi import AOIError, aoi_to_wkt
 
 __all__ = [
@@ -85,11 +85,6 @@ class SearchConfigError(Exception):
         super().__init__(f"{len(errors)} problem{plural}{location}:\n{body}")
 
 
-def _suggest(name: str, candidates: Any) -> str:
-    matches = difflib.get_close_matches(name, list(candidates), n=3, cutoff=0.6)
-    return f" Did you mean: {', '.join(matches)}?" if matches else ""
-
-
 class SearchConfig:
     """A loaded and (optionally) validated ASF search config."""
 
@@ -110,7 +105,9 @@ class SearchConfig:
         if isinstance(config, (str, Path)):
             path = Path(config)
             if not path.is_file():
-                raise FileNotFoundError(f"Config not found: {path}")
+                raise SearchConfigError(
+                    [f"Config not found: {path}"], source or str(path)
+                )
             source = source or str(path)
             loaded = OmegaConf.load(path)
         elif isinstance(config, DictConfig):
@@ -204,6 +201,8 @@ class SearchConfig:
         wkt, geometry_errors = self._check_geometry(raw, options)
         errors.extend(geometry_errors)
         errors.extend(self._check_output(raw))
+        errors.extend(self._check_dest(raw))
+        errors.extend(self._check_processes(raw))
         return wkt, errors
 
     def _check_geometry(
@@ -239,6 +238,28 @@ class SearchConfig:
         allowed = ", ".join(sorted(OUTPUT_WRITERS))
         return [f"'output': unsupported suffix {suffix!r}. Use one of: {allowed}"]
 
+    @staticmethod
+    def _check_dest(raw: dict[str, Any]) -> list[str]:
+        value = raw.get("dest")
+        if value is None:
+            return []
+        if isinstance(value, (list, dict)):
+            return ["'dest': must be a single path, not a list or mapping."]
+        return []
+
+    @staticmethod
+    def _check_processes(raw: dict[str, Any]) -> list[str]:
+        value = raw.get("processes")
+        if value is None:
+            return []
+        try:
+            processes = int(value)
+        except (TypeError, ValueError):
+            return [f"'processes': must be an integer, got {value!r}"]
+        if processes < 1:
+            return ["'processes': must be at least 1"]
+        return []
+
     # -- option building --------------------------------------------------- #
 
     def search_options(self) -> dict[str, Any]:
@@ -261,10 +282,3 @@ class SearchConfig:
         writer = OUTPUT_WRITERS[path.suffix.lower()]
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("".join(writer(results)), encoding="utf-8")
-
-
-def _plain(value: Any) -> Any:
-    """Convert OmegaConf containers to plain Python objects."""
-    if isinstance(value, (DictConfig, ListConfig)):
-        return OmegaConf.to_object(value)
-    return value

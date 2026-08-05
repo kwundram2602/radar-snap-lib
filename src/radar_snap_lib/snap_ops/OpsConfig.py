@@ -39,14 +39,14 @@ can be checked without SNAP installed.
 
 from __future__ import annotations
 
-import difflib
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from omegaconf import DictConfig, ListConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
+from radar_snap_lib._omegaconf import _plain, _register_resolvers, _suggest
 from radar_snap_lib.snap_ops.graph import Graph
 from radar_snap_lib.snap_ops.registry import OperatorSpec, Registry, load_registry
 
@@ -83,18 +83,6 @@ class ParsedNode:
     params: dict[str, Any] = field(default_factory=dict)
 
 
-def _plain(value: Any) -> Any:
-    """Convert OmegaConf containers to plain Python objects."""
-    if isinstance(value, (DictConfig, ListConfig)):
-        return OmegaConf.to_object(value)
-    return value
-
-
-def _suggest(name: str, candidates: Any) -> str:
-    matches = difflib.get_close_matches(name, list(candidates), n=3, cutoff=0.6)
-    return f" Did you mean: {', '.join(matches)}?" if matches else ""
-
-
 class OpsConfig:
     """A loaded and (optionally) validated process-graph config."""
 
@@ -117,14 +105,17 @@ class OpsConfig:
         config: str | Path | DictConfig | dict[str, Any],
         *,
         registry: Registry | None = None,
+        source: str | None = None,
     ) -> OpsConfig:
         """Load a config from a YAML path, a mapping, or an existing DictConfig."""
-        source: str | None = None
+        _register_resolvers()
         if isinstance(config, (str, Path)):
             path = Path(config)
             if not path.is_file():
-                raise FileNotFoundError(f"Config not found: {path}")
-            source = str(path)
+                raise GraphConfigError(
+                    [f"Config not found: {path}"], source or str(path)
+                )
+            source = source or str(path)
             loaded = OmegaConf.load(path)
         elif isinstance(config, DictConfig):
             loaded = config

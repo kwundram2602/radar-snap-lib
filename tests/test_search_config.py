@@ -118,6 +118,24 @@ class TestValidation:
         errors = SearchConfig.load({**BASE, "output": "results.txt"}).validate()
         assert any("output" in e and ".geojson" in e for e in errors)
 
+    def test_non_integer_processes_is_an_error(self):
+        errors = SearchConfig.load({**BASE, "processes": "many"}).validate()
+        assert any("processes" in e for e in errors)
+
+    def test_processes_below_one_is_an_error(self):
+        errors = SearchConfig.load({**BASE, "processes": 0}).validate()
+        assert any("processes" in e for e in errors)
+
+    def test_dest_as_a_list_is_an_error(self):
+        errors = SearchConfig.load({**BASE, "dest": ["a", "b"]}).validate()
+        assert any("dest" in e for e in errors)
+
+    def test_valid_dest_and_processes_have_no_errors(self):
+        errors = SearchConfig.load(
+            {**BASE, "dest": "/data/scenes", "processes": 4}
+        ).validate()
+        assert errors == []
+
     def test_root_must_be_a_mapping(self):
         with pytest.raises(SearchConfigError, match="mapping"):
             SearchConfig.load([1, 2, 3])
@@ -189,7 +207,7 @@ class TestYamlLoading:
         assert config.validate() == []
 
     def test_missing_file_raises(self, tmp_path):
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(SearchConfigError, match="not found"):
             SearchConfig.load(tmp_path / "nope.yaml")
 
     def test_error_message_names_the_source(self, tmp_path):

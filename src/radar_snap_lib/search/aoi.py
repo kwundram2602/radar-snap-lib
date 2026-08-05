@@ -120,25 +120,10 @@ def _from_sequence(source: Sequence[Any]) -> str:
 
 def _read_vector(path: Path) -> BaseGeometry:
     """Read every feature from a vector file as one WGS-84 geometry."""
-    import json
-
     import geopandas as gpd  # noqa: PLC0415 -- keeps import cost off the CLI
 
     if not path.is_file():
         raise AOIError(f"AOI file not found: {path}")
-
-    # Check for missing CRS in GeoJSON before geopandas infers it
-    if path.suffix.lower() == ".geojson":
-        try:
-            with open(path) as f:
-                geojson_data = json.load(f)
-                if "crs" not in geojson_data:
-                    raise AOIError(
-                        f"AOI file has no CRS: {path}. Assign one "
-                        "(EPSG:4326 is expected) and try again."
-                    )
-        except (OSError, json.JSONDecodeError, KeyError):
-            pass  # Will be caught by gpd.read_file
 
     try:
         frame = gpd.read_file(path)

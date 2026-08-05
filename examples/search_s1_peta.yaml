@@ -1,0 +1,36 @@
+# Sentinel-1 SLC scenes over an area of interest, ascending passes only.
+#
+#   radar-snap validate examples/search_s1_slc.yaml
+#   radar-snap search   examples/search_s1_slc.yaml
+#   radar-snap download examples/search_s1_slc.yaml
+#
+# Every setting lives here -- the commands take no flags. Downloading needs
+# Earthdata credentials; see .env.example. Searching does not.
+
+# AOI: a vector file (GeoPackage, Shapefile, GeoJSON -- all features are
+# unioned and reprojected to WGS-84), four numbers [W, S, E, N], or a WKT
+# string. Uncomment whichever you need.
+aoi: /home/kjell/projects/py_projects/eo_terrain/pettaciato.gpkg
+# aoi: [10.0, 50.0, 11.0, 51.0]
+# aoi: POLYGON((10 50, 11 50, 11 51, 10 51, 10 50))
+
+start: 2026-04-01
+end: 2026-04-13
+
+
+platform: SENTINEL-1
+flight_direction: ASCENDING,DESCENDING
+processing_level: SLC # GUNW
+beam_mode: IW
+relative_orbit: 124
+polarization: VV+VH
+max_results: 20
+
+
+# Any ASFSearchOptions key works here, in ASF's own camelCase or snake_case:
+# relative_orbit: 44
+# season: [90, 270]
+
+dest: results/s1/petacciato
+processes: 4
+output: results/Petacciato.geojson

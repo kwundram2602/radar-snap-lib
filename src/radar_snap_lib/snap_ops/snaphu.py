@@ -18,13 +18,41 @@ own bundled reference graphs and tool-adapter templates.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, ParsedNode
 
-__all__ = ["EXPORT_OP", "IMPORT_OP", "SnaphuSplit", "split_at_snaphu"]
+__all__ = ["EXPORT_OP", "IMPORT_OP", "SnaphuSplit", "parse_command", "split_at_snaphu"]
 
 EXPORT_OP = "SnaphuExport"
 IMPORT_OP = "SnaphuImport"
+
+_COMMAND_MARKER = "snaphu -f snaphu.conf"
+
+
+def parse_command(conf_path: Path) -> list[str]:
+    """Extract the recommended ``snaphu`` invocation from a ``snaphu.conf``.
+
+    SNAP's ``SnaphuExport`` writes the exact recommended command line as a
+    comment near the top of the file. This is a direct port of the same
+    scan SNAP Desktop's own "External Tools" adapter does (see
+    ``~/.snap/auxdata/tool-adapters/Snaphu-unwrapping/*.vm`` on a machine
+    with SNAP installed): look at the first 10 lines for one containing
+    ``'snaphu -f snaphu.conf'``, then return everything from ``-f`` onward,
+    split on whitespace.
+    """
+    with conf_path.open(encoding="utf-8") as handle:
+        lines = [next(handle, "") for _ in range(10)]
+
+    for line in lines:
+        marker_index = line.find(_COMMAND_MARKER)
+        if marker_index != -1:
+            exec_line = line[marker_index + len("snaphu ") :]
+            return exec_line.split()
+
+    raise RuntimeError(
+        f"{conf_path}: no {_COMMAND_MARKER!r} line found in the first 10 lines"
+    )
 
 
 @dataclass

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, ParsedNode
-from radar_snap_lib.snap_ops.snaphu import split_at_snaphu
+from radar_snap_lib.snap_ops.snaphu import parse_command, split_at_snaphu
 
 
 def _node(id_: str, op: str, sources: list[str] | None = None) -> ParsedNode:
@@ -124,3 +126,35 @@ class TestValidationErrors:
         ]
         with pytest.raises(GraphConfigError, match="orphan"):
             split_at_snaphu(nodes)
+
+
+CONF_TEXT = """\
+# Configuration file for SNAPHU
+#
+# Recommended command line call to snaphu (assuming this file is in the
+# working directory):
+# snaphu -f snaphu.conf Phase_ifg_srd_02Apr2026_13Jan2024.snaphu.img 500
+
+STATCOSTMODE  DEFO
+INITMETHOD    MCF
+"""
+
+
+class TestParseCommand:
+    def test_extracts_the_recommended_command(self, tmp_path: Path):
+        conf = tmp_path / "snaphu.conf"
+        conf.write_text(CONF_TEXT, encoding="utf-8")
+
+        assert parse_command(conf) == [
+            "-f",
+            "snaphu.conf",
+            "Phase_ifg_srd_02Apr2026_13Jan2024.snaphu.img",
+            "500",
+        ]
+
+    def test_raises_when_no_command_line_found(self, tmp_path: Path):
+        conf = tmp_path / "snaphu.conf"
+        conf.write_text("STATCOSTMODE  DEFO\n", encoding="utf-8")
+
+        with pytest.raises(RuntimeError, match="no 'snaphu -f snaphu.conf'"):
+            parse_command(conf)

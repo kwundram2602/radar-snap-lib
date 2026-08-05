@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 
 from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, ParsedNode
-from radar_snap_lib.snap_ops.snaphu import parse_command, split_at_snaphu
+from radar_snap_lib.snap_ops.snaphu import (
+    find_conf,
+    find_exported_product,
+    find_unwrapped_product,
+    parse_command,
+    split_at_snaphu,
+)
 
 
 def _node(id_: str, op: str, sources: list[str] | None = None) -> ParsedNode:
@@ -158,3 +164,39 @@ class TestParseCommand:
 
         with pytest.raises(RuntimeError, match="no 'snaphu -f snaphu.conf'"):
             parse_command(conf)
+
+
+class TestFindConf:
+    def test_finds_the_single_conf_file(self, tmp_path: Path):
+        (tmp_path / "snaphu.conf").write_text("x", encoding="utf-8")
+        assert find_conf(tmp_path) == tmp_path / "snaphu.conf"
+
+    def test_raises_when_missing(self, tmp_path: Path):
+        with pytest.raises(RuntimeError, match="No snaphu.conf"):
+            find_conf(tmp_path)
+
+
+class TestFindExportedProduct:
+    def test_finds_the_single_dim_file(self, tmp_path: Path):
+        (tmp_path / "Phase_ifg.dim").write_text("x", encoding="utf-8")
+        assert find_exported_product(tmp_path) == tmp_path / "Phase_ifg.dim"
+
+    def test_raises_when_missing(self, tmp_path: Path):
+        with pytest.raises(RuntimeError, match="No exported"):
+            find_exported_product(tmp_path)
+
+    def test_raises_when_ambiguous(self, tmp_path: Path):
+        (tmp_path / "a.dim").write_text("x", encoding="utf-8")
+        (tmp_path / "b.dim").write_text("x", encoding="utf-8")
+        with pytest.raises(RuntimeError, match="Multiple exported"):
+            find_exported_product(tmp_path)
+
+
+class TestFindUnwrappedProduct:
+    def test_finds_the_single_unwrapped_header(self, tmp_path: Path):
+        (tmp_path / "UnwPhase_ifg.snaphu.hdr").write_text("x", encoding="utf-8")
+        assert find_unwrapped_product(tmp_path) == tmp_path / "UnwPhase_ifg.snaphu.hdr"
+
+    def test_raises_when_missing(self, tmp_path: Path):
+        with pytest.raises(RuntimeError, match="No unwrapped"):
+            find_unwrapped_product(tmp_path)

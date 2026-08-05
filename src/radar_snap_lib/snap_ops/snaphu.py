@@ -22,7 +22,16 @@ from pathlib import Path
 
 from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, ParsedNode
 
-__all__ = ["EXPORT_OP", "IMPORT_OP", "SnaphuSplit", "parse_command", "split_at_snaphu"]
+__all__ = [
+    "EXPORT_OP",
+    "IMPORT_OP",
+    "SnaphuSplit",
+    "find_conf",
+    "find_exported_product",
+    "find_unwrapped_product",
+    "parse_command",
+    "split_at_snaphu",
+]
 
 EXPORT_OP = "SnaphuExport"
 IMPORT_OP = "SnaphuImport"
@@ -52,6 +61,39 @@ def parse_command(conf_path: Path) -> list[str]:
 
     raise RuntimeError(
         f"{conf_path}: no {_COMMAND_MARKER!r} line found in the first 10 lines"
+    )
+
+
+def _one_match(target_folder: Path, pattern: str, *, what: str) -> Path:
+    matches = sorted(target_folder.glob(pattern))
+    if not matches:
+        raise RuntimeError(f"No {what} found in {target_folder} (pattern {pattern!r})")
+    if len(matches) > 1:
+        names = [m.name for m in matches]
+        raise RuntimeError(f"Multiple {what} found in {target_folder}: {names}")
+    return matches[0]
+
+
+def find_conf(target_folder: Path) -> Path:
+    """Locate the ``snaphu.conf`` a ``SnaphuExport`` run wrote."""
+    return _one_match(target_folder, "snaphu.conf", what="snaphu.conf")
+
+
+def find_exported_product(target_folder: Path) -> Path:
+    """Locate the wrapped-phase ``.dim`` product ``SnaphuExport`` wrote."""
+    return _one_match(target_folder, "*.dim", what="exported .dim product")
+
+
+def find_unwrapped_product(target_folder: Path) -> Path:
+    """Locate the unwrapped output the ``snaphu`` subprocess wrote.
+
+    Naming convention confirmed against SNAP's own
+    ``Snaphu-unwrapping-after.vm`` tool-adapter template.
+    """
+    return _one_match(
+        target_folder,
+        "UnwPhase_*.snaphu.hdr",
+        what="unwrapped UnwPhase_*.snaphu.hdr output",
     )
 
 

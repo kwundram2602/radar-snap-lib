@@ -9,7 +9,7 @@ The standard Sentinel-1 SLC interferogram workflow needs phase unwrapping via
 `snaphu`, ESA's reference unwrapper. In SNAP's own GPF/InSAR toolbox this is a
 three-step affair:
 
-```
+```text
 ... -> SnaphuExport -> [snaphu CLI, run out-of-process] -> SnaphuImport -> ...
 ```
 
@@ -197,36 +197,69 @@ implementing, not something to hardcode confidently today.
 | `snap_ops/cli.py` | `dump-xml` / `run` handle the two-graph-XML case |
 | `examples/s1_slc_interferogram.yaml` | extended to the full chain through `Write` (currently stops at `GoldsteinPhaseFiltering` → `Write`) |
 
-## Open questions / risks (to resolve during implementation)
+## Confirmed against the local SNAP install
 
-1. **`SnaphuImport`'s actual source requirements.** The registry says it
-   takes a `sourceProducts` array (min 1, unbounded). The standard SNAP
-   tutorial workflow feeds it *two* sources — the re-read
-   (now-unwrapped) exported product, and the original coregistered/
-   interferogram stack for orbit and baseline metadata. This design assumes
-   the single re-read source is sufficient (matching what the YAML author
-   would naturally write: `sources: snaphu_export`), but that needs
-   verification against a real SNAP run or authoritative docs before the
-   implementation plan finalizes graph B's construction. If a second source
-   turns out to be required, the "no node referenced from both sides of the
-   split" validation above needs to be relaxed for exactly this case.
-2. **`snaphu.conf` header format.** The exact comment syntax SNAP emits
-   needs confirming (a real `SnaphuExport` run, or SNAP source, before
-   `parse_command` is implemented) rather than assumed from memory. Fallback
-   if the comment turns out to be unparseable or absent in some SNAP
-   version: reconstruct the command from `SnaphuExport`'s own node
-   parameters (`statCostMode`, `initMethod`, `numberOfTileRows/Cols`, tile
-   overlaps) plus the wrapped-phase image width read from the accompanying
-   ENVI `.hdr` file. Worth a small spike before committing to the
-   comment-parsing approach as primary.
-3. **Exported product naming convention.** The synthetic `Read` node in
-   graph B needs to know the exact filename `SnaphuExport` writes under
-   `targetFolder` (BEAM-DIMAP `.dim`/`.data` naming derived from the source
-   product name). Needs confirming against a real run, same as above.
+The three points flagged as open questions during design turned out to be
+directly answered by files SNAP itself ships (this machine has SNAP
+installed at `~/esa-snap`, confirmed working via `ensure_esa_snappy()`).
+Two sources, read directly, no guessing required:
 
-None of these block writing the implementation plan — they become the first
-verification step(s) inside it — but they should not be silently guessed at
-during implementation without a note back to the user.
+- `~/.snap/graphs/internal/insar/SnaphuExportGraph.xml` — SNAP's own
+  reference graph for the export half.
+- `~/.snap/graphs/internal/insar/SnaphuImportGraph.xml` — same, for import.
+- `~/.snap/auxdata/tool-adapters/Snaphu-unwrapping/*.vm` — Velocity
+  templates SNAP Desktop's "External Tools" wizard uses to drive `snaphu`
+  from the GUI. Not the mechanism this design uses (we shell out from
+  Python, not from a GUI tool adapter), but they encode the exact conf-file
+  and output-naming conventions, which *are* what this design needs.
+
+**1. `SnaphuImport` needs two sources**, confirmed by
+`SnaphuImportGraph.xml`:
+
+```xml
+<node id="3-SnaphuImport">
+    <operator>SnaphuImport</operator>
+    <sources>
+        <sourceProduct refid="1-Read-Phase"/>
+        <sourceProduct.1 refid="2-Read-Unwrapped-Phase"/>
+    </sources>
+    ...
+```
+
+`sourceProduct` = a fresh `Read` of the *exported* wrapped-phase product
+(the `.dim` `SnaphuExport` wrote to `targetFolder`). `sourceProduct.1` = a
+fresh `Read` of the unwrapped output `snaphu` itself produced. So graph B's
+injected node is not one `Read` but **two**, both feeding `SnaphuImport`.
+The "no node referenced from both sides of the split" validation in
+`split_at_snaphu` needs a narrow exception for this: `SnaphuImport` is
+allowed exactly two inbound edges that resolve to synthetic reads, both
+derived from the single `SnaphuExport` node it names in `sources`.
+
+**2. `snaphu.conf`'s recommended command is a literal, greppable line.**
+Confirmed by `Snaphu-unwrapping-template.vm`, which does exactly this in
+Java reflection (the same operation `parse_command` will do in Python):
+read the first 10 lines of `snaphu.conf`, find the one containing
+`'snaphu -f snaphu.conf'`, take the substring from `'snaphu -f'` onward,
+split on spaces to get the argument list. `parse_command` is a direct
+Python port of this logic — no fallback/reconstruction path needed.
+
+**3. The unwrapped output's naming convention is confirmed** by
+`Snaphu-unwrapping-after.vm`: files named `UnwPhase_*.snaphu.hdr` (with a
+matching `.img`) appear in the working directory `snaphu` was run in — i.e.
+the runner's `cwd` for the subprocess call, which this design already sets
+to `targetFolder` (the same folder `snaphu.conf` and the exported product
+live in). So after the subprocess step, graph B's second synthetic `Read`
+globs `targetFolder` for `UnwPhase_*.snaphu.hdr`; there must be exactly one
+match, which is itself a useful post-condition to assert (zero means
+`snaphu` didn't actually produce output despite exiting zero; more than one
+means a stale file from a previous run wasn't cleaned up).
+
+For the first synthetic `Read` (the re-read of `SnaphuExport`'s own
+output), the exported product's exact filename is not hardcoded — it's
+whatever `.dim` `SnaphuExport` wrote to `targetFolder` during graph A.
+Rather than guess the naming convention, the runner globs `targetFolder`
+for `*.dim` right after graph A completes and before the subprocess runs;
+exactly one match is required (same fail-fast reasoning as above).
 
 ## Testing
 

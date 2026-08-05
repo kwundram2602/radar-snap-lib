@@ -198,7 +198,13 @@ def _cmd_download(args: argparse.Namespace) -> int:
 
 
 def _cmd_dump_xml(args: argparse.Namespace) -> int:
-    from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, OpsConfig
+    from radar_snap_lib.snap_ops.OpsConfig import (
+        GraphConfigError,
+        OpsConfig,
+        build_graph,
+        dependency_order,
+    )
+    from radar_snap_lib.snap_ops.snaphu import split_at_snaphu
 
     try:
         loaded = _load_source(Path(args.config))
@@ -207,7 +213,22 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        xml = OpsConfig.load(loaded, source=str(args.config)).to_xml(args.output)
+        config = OpsConfig.load(loaded, source=str(args.config))
+        nodes = config.parse()
+        errors = config.validate(nodes)
+        if errors:
+            raise GraphConfigError(errors, config.source)
+        split = split_at_snaphu(nodes)
+        if split is not None:
+            xml = build_graph(
+                dependency_order(split.graph_a),
+                config.registry,
+                graph_id="radar-snap-a",
+            ).to_xml(args.output)
+        else:
+            xml = build_graph(dependency_order(nodes), config.registry).to_xml(
+                args.output
+            )
     except GraphConfigError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -216,6 +237,15 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
         print(f"Wrote {args.output}")
     else:
         print(xml, end="")
+
+    if split is not None:
+        print(
+            "\nThis config also has a SnaphuExport/SnaphuImport pair -- graph B "
+            "depends on files snaphu writes at run time, so it can't be dumped "
+            "statically. Use `radar-snap run --dump-xml <path>` instead, which "
+            "writes both graphs after actually running.",
+            file=sys.stderr,
+        )
     return 0
 
 
@@ -226,6 +256,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     try:
         run_graph(args.config, dump_xml=args.dump_xml, quiet=args.quiet)
     except GraphConfigError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    except RuntimeError as exc:
         print(exc, file=sys.stderr)
         return 1
     print(f"{args.config}: done")

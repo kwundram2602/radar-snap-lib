@@ -94,6 +94,33 @@ class TestConfigLoadErrors:
         assert "Traceback" not in err
 
 
+class TestDumpXmlSplitConfig:
+    def test_dump_xml_on_split_config_writes_graph_a_only(self, tmp_path, capsys):
+        target_folder = tmp_path / "snaphu_work"
+        target_folder.mkdir()
+        path = tmp_path / "config.yaml"
+        path.write_text(
+            "pipeline:\n"
+            "  Read:\n"
+            "    file: src.dim\n"
+            "  SnaphuExport:\n"
+            f"    targetFolder: {target_folder}\n"
+            "  SnaphuImport:\n"
+            "    sources: SnaphuExport\n"
+            "  Write:\n"
+            "    file: out.dim\n"
+            "    formatName: BEAM-DIMAP\n"
+        )
+
+        assert cli.main(["dump-xml", str(path)]) == 0
+
+        out = capsys.readouterr()
+        assert "SnaphuExport" in out.out
+        assert "SnaphuImport" not in out.out
+        assert "graph B" in out.err
+        assert "run --dump-xml" in out.err
+
+
 class TestNoFlags:
     @pytest.mark.parametrize("command", ["search", "download"])
     def test_flags_are_rejected(self, command, tmp_path):

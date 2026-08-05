@@ -1,23 +1,40 @@
 """Execute GPF graphs through SNAP.
 
-This is the only module that needs the JVM.  It feeds graph XML to SNAP's own
+This is the only module that needs the JVM. It feeds graph XML to SNAP's own
 ``GraphProcessor`` -- the same path the ``gpt`` command line tool takes -- so the
 whole chain streams tile by tile instead of materialising every intermediate
-product.  That matters for SLC scenes, where holding each step in memory is not
+product. That matters for SLC scenes, where holding each step in memory is not
 an option.
+
+A config containing a ``SnaphuExport``/``SnaphuImport`` pair cannot run as one
+graph -- the actual phase unwrapping happens in the external ``snaphu`` binary,
+between the two SNAP operators. ``run_graph`` detects that pair (see
+``snap_ops.snaphu.split_at_snaphu``) and transparently runs it as three
+phases: graph A through ``SnaphuExport``, the ``snaphu`` subprocess, then
+graph B from two freshly injected ``Read`` nodes through the rest of the
+pipeline. Configs without that pair are unaffected. See
+docs/superpowers/specs/2026-08-05-snaphu-subprocess-design.md for the full
+design.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from omegaconf import DictConfig
 
-from radar_snap_lib.snap_ops.OpsConfig import OpsConfig
+from radar_snap_lib.snap_ops import snaphu
+from radar_snap_lib.snap_ops.OpsConfig import (
+    OpsConfig,
+    ParsedNode,
+    build_graph,
+    dependency_order,
+)
 from radar_snap_lib.snap_ops.registry import Registry
 
-__all__ = ["execute_xml", "run_graph"]
+__all__ = ["SnaphuRunResult", "execute_xml", "run_graph"]
 
 
 def _graph_classes() -> tuple[Any, Any, Any, Any, Any, Any]:
@@ -44,7 +61,14 @@ def execute_xml(xml: str, *, quiet: bool = False) -> None:
         xml: A complete ``<graph>`` document.
         quiet: Suppress SNAP's progress output.
     """
-    graph_io, graph_processor, string_reader, progress_monitor, console_monitor, system = _graph_classes()
+    (
+        graph_io,
+        graph_processor,
+        string_reader,
+        progress_monitor,
+        console_monitor,
+        system,
+    ) = _graph_classes()
 
     graph = graph_io.read(string_reader(xml))
     processor = graph_processor()
@@ -52,28 +76,135 @@ def execute_xml(xml: str, *, quiet: bool = False) -> None:
     processor.executeGraph(graph, monitor)
 
 
+@dataclass
+class SnaphuRunResult:
+    """Result of a split (SnaphuExport/SnaphuImport) run.
+
+    ``run_graph`` returns this instead of a plain ``str`` whenever the
+    config contains a ``SnaphuExport``/``SnaphuImport`` pair, since there
+    are two graphs to report instead of one.
+    """
+
+    xml_a: str
+    xml_b: str
+    snaphu_command: list[str]
+
+
+def _read_node(node_id: str, file_path: Path) -> ParsedNode:
+    return ParsedNode(
+        id=node_id, op="Read", sources=[], params={"file": str(file_path)}
+    )
+
+
+def _run_split(
+    split: snaphu.SnaphuSplit,
+    *,
+    registry: Registry,
+    dump_xml: Path | str | None,
+    snaphu_bin: str,
+    quiet: bool,
+) -> SnaphuRunResult:
+    graph_a = build_graph(
+        dependency_order(split.graph_a), registry, graph_id="radar-snap-a"
+    )
+    xml_a = graph_a.to_xml()
+    execute_xml(xml_a, quiet=quiet)
+
+    target_folder = Path(str(split.export_node.params["targetFolder"]))
+    conf_path = snaphu.find_conf(target_folder)
+    exported_product = snaphu.find_exported_product(target_folder)
+
+    snaphu.run_snaphu(conf_path, snaphu_bin=snaphu_bin, quiet=quiet)
+
+    unwrapped_product = snaphu.find_unwrapped_product(target_folder)
+
+    phase_read_id = f"{split.import_node.id}__phase"
+    unwrapped_read_id = f"{split.import_node.id}__unwrapped"
+    import_node = ParsedNode(
+        id=split.import_node.id,
+        op=split.import_node.op,
+        sources=[phase_read_id, unwrapped_read_id],
+        params=split.import_node.params,
+    )
+
+    graph_b_nodes = [
+        _read_node(phase_read_id, exported_product),
+        _read_node(unwrapped_read_id, unwrapped_product),
+        import_node,
+        *[n for n in split.graph_b if n.id != split.import_node.id],
+    ]
+    graph_b = build_graph(
+        dependency_order(graph_b_nodes), registry, graph_id="radar-snap-b"
+    )
+    xml_b = graph_b.to_xml()
+    execute_xml(xml_b, quiet=quiet)
+
+    if dump_xml is not None:
+        dump_path = Path(dump_xml)
+        dump_path.with_name(f"{dump_path.stem}.a{dump_path.suffix}").write_text(
+            xml_a, encoding="utf-8"
+        )
+        dump_path.with_name(f"{dump_path.stem}.b{dump_path.suffix}").write_text(
+            xml_b, encoding="utf-8"
+        )
+
+    return SnaphuRunResult(
+        xml_a=xml_a,
+        xml_b=xml_b,
+        snaphu_command=[snaphu_bin, *snaphu.parse_command(conf_path)],
+    )
+
+
 def run_graph(
     config: str | Path | DictConfig | dict[str, Any],
     *,
     dump_xml: Path | str | None = None,
     registry: Registry | None = None,
+    snaphu_bin: str = "snaphu",
     quiet: bool = False,
-) -> str:
+) -> str | SnaphuRunResult:
     """Validate a config, then execute it.
 
     Args:
         config: Path to a YAML config, a mapping, or a ``DictConfig``.
-        dump_xml: Write the generated graph XML here before running.  Handy for
-            debugging -- the file opens directly in SNAP Desktop.
+        dump_xml: Write the generated graph XML here before running. Handy for
+            debugging -- the file opens directly in SNAP Desktop. For a
+            config with a ``SnaphuExport``/``SnaphuImport`` pair, two files
+            are written instead (suffixed ``.a``/``.b``), since there are
+            two graphs.
         registry: Operator registry override, mainly for tests.
+        snaphu_bin: The ``snaphu`` executable to invoke, for configs with a
+            ``SnaphuExport``/``SnaphuImport`` pair. Defaults to ``snaphu``
+            on ``PATH``.
         quiet: Suppress SNAP's progress output.
 
     Returns:
-        The graph XML that was executed.
+        The graph XML that was executed, or -- for a config with a
+        ``SnaphuExport``/``SnaphuImport`` pair -- a :class:`SnaphuRunResult`
+        with both graphs' XML and the ``snaphu`` command that ran.
 
     Raises:
         GraphConfigError: If the config does not describe a valid graph.
+        RuntimeError: If the ``snaphu`` subprocess is missing or fails.
     """
-    xml = OpsConfig.load(config, registry=registry).to_xml(dump_xml)
+    ops_config = OpsConfig.load(config, registry=registry)
+    nodes = ops_config.parse()
+    errors = ops_config.validate(nodes)
+    if errors:
+        from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError
+
+        raise GraphConfigError(errors, ops_config.source)
+
+    split = snaphu.split_at_snaphu(nodes)
+    if split is not None:
+        return _run_split(
+            split,
+            registry=ops_config.registry,
+            dump_xml=dump_xml,
+            snaphu_bin=snaphu_bin,
+            quiet=quiet,
+        )
+
+    xml = build_graph(dependency_order(nodes), ops_config.registry).to_xml(dump_xml)
     execute_xml(xml, quiet=quiet)
     return xml

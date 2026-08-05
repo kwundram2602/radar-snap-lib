@@ -94,5 +94,6 @@ def test_dump_xml_writes_the_executed_graph(source_product, tmp_path):
     }
 
     xml = run_graph(config, dump_xml=dumped, quiet=True)
+    assert isinstance(xml, str)
     assert dumped.read_text(encoding="utf-8") == xml
     assert "<operator>Read</operator>" in xml

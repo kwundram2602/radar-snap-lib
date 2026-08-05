@@ -89,6 +89,7 @@ class TestThreePhaseOrchestration:
 
         result = run_graph(_config(target_folder), registry=registry, quiet=True)
 
+        assert isinstance(result, SnaphuRunResult)
         assert str(target_folder / "Phase_ifg.dim") in result.xml_b
         assert str(target_folder / "UnwPhase_ifg.snaphu.hdr") in result.xml_b
 

@@ -267,12 +267,28 @@ exactly one match is required (same fail-fast reasoning as above).
   path, missing `SnaphuImport`, multiple `SnaphuExport`, `SnaphuImport` not
   sourced from the `SnaphuExport` node id, a node referenced from both
   halves. Same style as `tests/test_ops_config.py`.
-- `parse_command`: unit test against a small fixture `snaphu.conf` text
-  (once its real format is confirmed per Open Question 2).
+- `parse_command`: unit test against a fixture `snaphu.conf` text built to
+  match the confirmed parsing rule above (scan first 10 lines for one
+  containing `'snaphu -f snaphu.conf'`).
 - Three-phase orchestration: `runner.py` test with `execute_xml` and
   `subprocess.run` monkeypatched, asserting call order (graph A → snaphu →
   graph B) and that a nonzero `snaphu` exit aborts before graph B runs. No
   SNAP or real `snaphu` binary needed.
-- A `pytest.mark.snap` integration test alongside the existing ones in
-  `tests/test_runner.py`, once Open Questions 1–3 are confirmed and a real
-  `snaphu` binary is available in the test environment.
+
+**No real end-to-end `SnaphuExport` test is planned.** Verified directly
+against the local SNAP install: `SnaphuExport` rejects anything that isn't a
+properly coregistered InSAR stack —
+
+```text
+RuntimeError: org.esa.snap.core.gpf.graph.GraphException:
+[NodeId: SnaphuExport] Input should be a coregistered stack.
+```
+
+— confirmed by running it against a minimal synthetic two-band product,
+which SNAP correctly refused. Building a fixture with valid abstracted
+metadata (orbit state vectors, master/slave tags, etc.) to satisfy that
+check is disproportionate effort for this feature, and the existing test
+suite doesn't attempt full InSAR chains either (`tests/test_runner.py`
+covers `Subset`+`BandMaths` only). Real end-to-end validation — with actual
+Sentinel-1 data and a real `snaphu` binary — is a manual verification step
+for whoever implements this, not part of the automated suite.

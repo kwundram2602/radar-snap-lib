@@ -18,14 +18,24 @@ from radar_snap_lib.snap_ops.snaphu import (
 )
 
 
-def _node(id_: str, op: str, sources: list[str] | None = None) -> ParsedNode:
-    return ParsedNode(id=id_, op=op, sources=sources or [], params={})
+def _node(
+    id_: str,
+    op: str,
+    sources: list[str] | None = None,
+    params: dict | None = None,
+) -> ParsedNode:
+    return ParsedNode(id=id_, op=op, sources=sources or [], params=params or {})
 
 
 LINEAR_WITH_SNAPHU = [
     _node("read", "Read"),
     _node("goldstein", "GoldsteinPhaseFiltering", ["read"]),
-    _node("snaphu_export", "SnaphuExport", ["goldstein"]),
+    _node(
+        "snaphu_export",
+        "SnaphuExport",
+        ["goldstein"],
+        params={"targetFolder": "/tmp/snaphu_work"},
+    ),
     _node("snaphu_import", "SnaphuImport", ["snaphu_export"]),
     _node("terrain_correction", "Terrain-Correction", ["snaphu_import"]),
     _node("write", "Write", ["terrain_correction"]),
@@ -80,7 +90,12 @@ class TestValidationErrors:
     def test_import_not_sourced_from_export(self):
         nodes = [
             _node("read", "Read"),
-            _node("snaphu_export", "SnaphuExport", ["read"]),
+            _node(
+                "snaphu_export",
+                "SnaphuExport",
+                ["read"],
+                params={"targetFolder": "/tmp/snaphu_work"},
+            ),
             _node("snaphu_import", "SnaphuImport", ["read"]),
         ]
         with pytest.raises(GraphConfigError, match="must list 'snaphu_export'"):
@@ -89,7 +104,12 @@ class TestValidationErrors:
     def test_import_has_extra_sources(self):
         nodes = [
             _node("read", "Read"),
-            _node("snaphu_export", "SnaphuExport", ["read"]),
+            _node(
+                "snaphu_export",
+                "SnaphuExport",
+                ["read"],
+                params={"targetFolder": "/tmp/snaphu_work"},
+            ),
             _node("snaphu_import", "SnaphuImport", ["snaphu_export", "read"]),
         ]
         with pytest.raises(GraphConfigError, match="only 'snaphu_export'"):
@@ -98,7 +118,12 @@ class TestValidationErrors:
     def test_node_referenced_from_both_halves(self):
         nodes = [
             _node("read", "Read"),
-            _node("snaphu_export", "SnaphuExport", ["read"]),
+            _node(
+                "snaphu_export",
+                "SnaphuExport",
+                ["read"],
+                params={"targetFolder": "/tmp/snaphu_work"},
+            ),
             _node("snaphu_import", "SnaphuImport", ["snaphu_export"]),
             # 'stray' has no sources, so it is never an ancestor of
             # snaphu_export; it is only referenced by 'write' (a descendant
@@ -121,7 +146,12 @@ class TestValidationErrors:
         nodes = [
             _node("read", "Read"),
             _node("x", "Read", ["snaphu_import"]),
-            _node("snaphu_export", "SnaphuExport", ["read", "x"]),
+            _node(
+                "snaphu_export",
+                "SnaphuExport",
+                ["read", "x"],
+                params={"targetFolder": "/tmp/snaphu_work"},
+            ),
             _node("snaphu_import", "SnaphuImport", ["snaphu_export"]),
         ]
         with pytest.raises(GraphConfigError, match="reachable from both sides"):
@@ -133,6 +163,29 @@ class TestValidationErrors:
             _node("orphan", "Read"),
         ]
         with pytest.raises(GraphConfigError, match="orphan"):
+            split_at_snaphu(nodes)
+
+    def test_missing_target_folder_on_export_node(self):
+        nodes = [
+            _node("read", "Read"),
+            _node("snaphu_export", "SnaphuExport", ["read"]),
+            _node("snaphu_import", "SnaphuImport", ["snaphu_export"]),
+        ]
+        with pytest.raises(GraphConfigError, match="requires a 'targetFolder'"):
+            split_at_snaphu(nodes)
+
+    def test_empty_target_folder_on_export_node(self):
+        nodes = [
+            _node("read", "Read"),
+            _node(
+                "snaphu_export",
+                "SnaphuExport",
+                ["read"],
+                params={"targetFolder": ""},
+            ),
+            _node("snaphu_import", "SnaphuImport", ["snaphu_export"]),
+        ]
+        with pytest.raises(GraphConfigError, match="requires a 'targetFolder'"):
             split_at_snaphu(nodes)
 
 

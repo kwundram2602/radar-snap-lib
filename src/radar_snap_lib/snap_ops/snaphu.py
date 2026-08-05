@@ -205,6 +205,15 @@ def split_at_snaphu(nodes: list[ParsedNode]) -> SnaphuSplit | None:
     export_node = exports[0]
     import_node = imports[0]
 
+    if not export_node.params.get("targetFolder"):
+        raise GraphConfigError(
+            [
+                f"Node {export_node.id!r}: {EXPORT_OP!r} requires a "
+                f"'targetFolder' parameter -- the runner needs it to locate "
+                f"snaphu.conf and the exported product"
+            ]
+        )
+
     if export_node.id not in import_node.sources:
         raise GraphConfigError(
             [

@@ -27,6 +27,7 @@ from omegaconf import DictConfig
 
 from radar_snap_lib.snap_ops import snaphu
 from radar_snap_lib.snap_ops.OpsConfig import (
+    GraphConfigError,
     OpsConfig,
     ParsedNode,
     build_graph,
@@ -191,8 +192,6 @@ def run_graph(
     nodes = ops_config.parse()
     errors = ops_config.validate(nodes)
     if errors:
-        from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError
-
         raise GraphConfigError(errors, ops_config.source)
 
     split = snaphu.split_at_snaphu(nodes)

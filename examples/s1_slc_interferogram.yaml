@@ -1,15 +1,21 @@
-  # Sentinel-1 SLC interferogram from a reference/secondary pair.
+  # Sentinel-1 SLC interferogram from a reference/secondary pair, unwrapped
+  # via snaphu and terrain-corrected to a displacement product.
   #
-  #   radar-snap dump-xml examples/s1_slc_interferogram.yaml -o /tmp/ifg.xml
+  #   radar-snap run examples/s1_slc_interferogram.yaml
   #
-  # Not a linear chain: two Read nodes feed Back-Geocoding, and TOPSAR-Split is
-  # used twice. Both need the reserved keys -- `op` to name the operator when the
-  # node id differs from it, and `sources` to wire inputs explicitly.
+  # Not a linear chain: two Read nodes feed Back-Geocoding, and TOPSAR-Split
+  # is used twice. Both need the reserved keys -- `op` to name the operator
+  # when the node id differs from it, and `sources` to wire inputs
+  # explicitly. The SnaphuExport -> SnaphuImport edge is also special: SNAP
+  # can't unwrap phase itself, so `run_graph` splits execution there and
+  # shells out to the `snaphu` binary in between (see
+  # docs/superpowers/specs/2026-08-05-snaphu-subprocess-design.md).
 
   vars:
     reference: /home/kjell/projects/py_projects/radar-snap-lib/results/s1/petacciato/S1A_IW_SLC__1SDV_20260402T050335_20260402T050402_063896_080959_D909.zip
     secondary: /home/kjell/projects/py_projects/radar-snap-lib/results/s1/petacciato/S1A_IW_SLC__1SDV_20240113T054321.zip
     output: /home/kjell/projects/py_projects/radar-snap-lib/results/s1/petacciato/interferogram.dim
+    snaphu_folder: /home/kjell/projects/py_projects/radar-snap-lib/results/s1/petacciato/snaphu
     subswath: IW2
     polarisation: VV
 
@@ -50,8 +56,11 @@
       resamplingType: BISINC_5_POINT_INTERPOLATION
       maskOutAreaWithoutElevation: true
 
-    Interferogram:
+    Enhanced-Spectral-Diversity:
       sources: coreg
+
+    Interferogram:
+      sources: Enhanced-Spectral-Diversity
       subtractFlatEarthPhase: true
       includeCoherence: true
       cohWinRg: 10
@@ -59,8 +68,24 @@
 
     TOPSAR-Deburst: {}
 
+    Multilook:
+      nRgLooks: 4
+      nAzLooks: 1
+
     GoldsteinPhaseFiltering:
       alpha: 1.0
+
+    SnaphuExport:
+      targetFolder: ${vars.snaphu_folder}
+      statCostMode: DEFO
+
+    SnaphuImport:
+      sources: SnaphuExport
+
+    PhaseToDisplacement: {}
+
+    Terrain-Correction:
+      demName: Copernicus 30m Global DEM
 
     Write:
       file: ${vars.output}

@@ -260,3 +260,19 @@ class TestRunSnaphu:
 
         with pytest.raises(RuntimeError, match="bad tile geometry"):
             run_snaphu(conf, snaphu_bin="snaphu")
+
+
+class TestInterferogramExampleSplit:
+    def test_the_example_config_splits_at_snaphu(self, registry):
+        from radar_snap_lib.snap_ops.OpsConfig import OpsConfig
+
+        EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+        path = EXAMPLES / "s1_slc_interferogram.yaml"
+        nodes = OpsConfig.load(path, registry=registry).parse()
+
+        split = split_at_snaphu(nodes)
+
+        assert split is not None
+        assert split.export_node.op == "SnaphuExport"
+        assert split.import_node.op == "SnaphuImport"
+        assert [n.id for n in split.graph_b][-1] == "Write"

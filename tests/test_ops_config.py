@@ -203,6 +203,13 @@ class TestValidation:
 
 
 class TestGraphConstruction:
+    def test_build_graph_matches_to_graph(self, registry):
+        from radar_snap_lib.snap_ops.OpsConfig import build_graph, dependency_order
+
+        config = _config(LINEAR, registry)
+        nodes = dependency_order(config.parse())
+        assert build_graph(nodes, registry).to_xml() == config.to_graph().to_xml()
+
     def test_builds_a_graph(self, registry):
         graph = _config(LINEAR, registry).to_graph()
         assert [node.id for node in graph.nodes] == list(LINEAR)

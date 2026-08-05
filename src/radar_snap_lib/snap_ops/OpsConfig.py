@@ -50,7 +50,13 @@ from radar_snap_lib._omegaconf import _plain, _register_resolvers, _suggest
 from radar_snap_lib.snap_ops.graph import Graph
 from radar_snap_lib.snap_ops.registry import OperatorSpec, Registry, load_registry
 
-__all__ = ["GraphConfigError", "OpsConfig", "ParsedNode"]
+__all__ = [
+    "GraphConfigError",
+    "OpsConfig",
+    "ParsedNode",
+    "build_graph",
+    "dependency_order",
+]
 
 #: Node-level keys that are structure rather than operator parameters.
 RESERVED_KEYS = frozenset({"op", "sources"})
@@ -71,6 +77,47 @@ class GraphConfigError(Exception):
         body = "\n".join(f"  - {error}" for error in errors)
         plural = "s" if len(errors) != 1 else ""
         super().__init__(f"{len(errors)} problem{plural}{location}:\n{body}")
+
+
+def dependency_order(nodes: list[ParsedNode]) -> list[ParsedNode]:
+    """Order nodes so each one follows its sources.
+
+    A config may reference a node defined further down the file; the graph
+    needs its sources to exist before the node is added. Sources not present
+    in ``nodes`` are skipped rather than erroring, so this also works on
+    partial node lists (e.g. one half of a SnaphuExport/SnaphuImport split).
+    """
+    by_id = {node.id: node for node in nodes}
+    done: set[str] = set()
+    order: list[ParsedNode] = []
+
+    def visit(node_id: str) -> None:
+        if node_id in done:
+            return
+        done.add(node_id)
+        for source in by_id[node_id].sources:
+            if source in by_id:
+                visit(source)
+        order.append(by_id[node_id])
+
+    for node in nodes:
+        visit(node.id)
+    return order
+
+
+def build_graph(
+    nodes: list[ParsedNode], registry: Registry, *, graph_id: str = "radar-snap"
+) -> Graph:
+    """Turn an already-ordered node list into a :class:`Graph`.
+
+    ``nodes`` must already be in dependency order (see
+    :func:`dependency_order`) -- each node's sources must already be present
+    in the graph by the time it is added.
+    """
+    graph = Graph(registry=registry, graph_id=graph_id)
+    for node in nodes:
+        graph._add(node.op, node.sources, node.params, node_id=node.id)
+    return graph
 
 
 @dataclass
@@ -315,34 +362,16 @@ class OpsConfig:
         if errors:
             raise GraphConfigError(errors, self.source)
 
-        graph = Graph(registry=self.registry, graph_id=graph_id)
-        for node in self._dependency_order(nodes):
-            graph._add(node.op, node.sources, node.params, node_id=node.id)
-        return graph
+        return build_graph(dependency_order(nodes), self.registry, graph_id=graph_id)
 
     @staticmethod
     def _dependency_order(nodes: list[ParsedNode]) -> list[ParsedNode]:
         """Order nodes so each one follows its sources.
 
-        A config may reference a node defined further down the file; the graph
-        needs its sources to exist before the node is added.
+        Kept as a thin wrapper around the module-level :func:`dependency_order`
+        for existing internal call sites.
         """
-        by_id = {node.id: node for node in nodes}
-        done: set[str] = set()
-        order: list[ParsedNode] = []
-
-        def visit(node_id: str) -> None:
-            if node_id in done:
-                return
-            done.add(node_id)
-            for source in by_id[node_id].sources:
-                if source in by_id:
-                    visit(source)
-            order.append(by_id[node_id])
-
-        for node in nodes:
-            visit(node.id)
-        return order
+        return dependency_order(nodes)
 
     def to_xml(self, path: Path | str | None = None) -> str:
         """Validate and serialise straight to GPF graph XML."""

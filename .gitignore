@@ -17,3 +17,6 @@ CLAUDE.md
 
 # Generated operator reference (`radar-snap gen-registry`); specs stay tracked
 docs/operators.md
+
+# Git worktrees for isolated feature work
+.worktrees/

@@ -125,6 +125,23 @@ The config is translated into SNAP's own graph XML and handed to
 tile by tile instead of materialising every intermediate product. The dumped
 `graph.xml` opens directly in SNAP Desktop.
 
+### SnaphuExport / SnaphuImport (phase unwrapping)
+
+A pipeline containing a `SnaphuExport` -> `SnaphuImport` pair needs the
+external `snaphu` binary on `PATH` -- SNAP's `GraphProcessor` cannot shell out
+mid-graph, so `run_graph` transparently splits such a config into two SNAP
+graphs with a `snaphu` subprocess call in between. `radar-snap validate` and
+`radar-snap dump-xml` catch a malformed split (wrong node counts, bad wiring)
+without needing SNAP or `snaphu` installed. To point at a `snaphu` build that
+isn't on `PATH`, pass `snaphu_bin=` to `run_graph` from Python; there is no
+equivalent CLI flag yet.
+
+For a split config, `dump-xml` only emits graph A's XML (graph B depends on
+files `snaphu` writes at run time, so it can't be dumped statically) and
+prints a note to use `run --dump-xml` instead. `run --dump-xml <path>` writes
+both graphs for a split config, as `<stem>.a<suffix>` and `<stem>.b<suffix>`
+(e.g. `graph.a.xml` and `graph.b.xml` for `--dump-xml graph.xml`).
+
 ## The Python builder API
 
 The same node model, built in code instead of YAML:

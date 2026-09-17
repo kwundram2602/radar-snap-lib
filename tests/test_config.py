@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 from radar_snap_lib import config
@@ -29,6 +30,34 @@ class TestSnappyPathOrder:
         config.ensure_esa_snappy()
 
         assert sys.path.count(str(site_packages)) == 1
+
+    def test_exports_dotenv_vars_the_jvm_needs(self, monkeypatch, tmp_path):
+        site_packages = tmp_path / "lib" / "python3.13" / "site-packages"
+        site_packages.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+        (tmp_path / ".env").write_text(
+            'JAVA_TOOL_OPTIONS="-Duser.language=en -Duser.country=US"\n'
+        )
+        monkeypatch.setattr(config, "_project_root", lambda: tmp_path)
+        monkeypatch.setattr(config, "snappy_site_packages", lambda: site_packages)
+        monkeypatch.delenv("JAVA_TOOL_OPTIONS", raising=False)
+
+        config.ensure_esa_snappy()
+
+        assert os.environ["JAVA_TOOL_OPTIONS"] == "-Duser.language=en -Duser.country=US"
+
+    def test_dotenv_export_does_not_override_existing_env(self, monkeypatch, tmp_path):
+        site_packages = tmp_path / "lib" / "python3.13" / "site-packages"
+        site_packages.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+        (tmp_path / ".env").write_text("JAVA_TOOL_OPTIONS=from-dotenv\n")
+        monkeypatch.setattr(config, "_project_root", lambda: tmp_path)
+        monkeypatch.setattr(config, "snappy_site_packages", lambda: site_packages)
+        monkeypatch.setenv("JAVA_TOOL_OPTIONS", "from-shell")
+
+        config.ensure_esa_snappy()
+
+        assert os.environ["JAVA_TOOL_OPTIONS"] == "from-shell"
 
 
 class TestEnvValue:

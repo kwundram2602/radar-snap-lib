@@ -133,8 +133,10 @@ mid-graph, so `run_graph` transparently splits such a config into two SNAP
 graphs with a `snaphu` subprocess call in between. `radar-snap validate` and
 `radar-snap dump-xml` catch a malformed split (wrong node counts, bad wiring)
 without needing SNAP or `snaphu` installed. To point at a `snaphu` build that
-isn't on `PATH`, pass `snaphu_bin=` to `run_graph` from Python; there is no
-equivalent CLI flag yet.
+isn't on `PATH`, either set `SNAPHU_BIN` (as an environment variable or in
+`.env`, resolved the same way as `ESA_SNAPPY_VENV`) or pass `--snaphu-bin` to
+`radar-snap run` (which takes precedence over `SNAPHU_BIN`); the same value
+can be passed as `snaphu_bin=` to `run_graph` from Python.
 
 For a split config, `dump-xml` only emits graph A's XML (graph B depends on
 files `snaphu` writes at run time, so it can't be dumped statically) and

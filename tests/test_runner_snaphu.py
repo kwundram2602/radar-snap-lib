@@ -38,7 +38,7 @@ def target_folder(tmp_path: Path) -> Path:
 
 def _stage_export_output(target_folder: Path) -> None:
     """Simulate what a real graph-A execution would leave on disk."""
-    (target_folder / "Phase_ifg.dim").write_text("x", encoding="utf-8")
+    (target_folder / "Phase_ifg.snaphu.hdr").write_text("x", encoding="utf-8")
     (target_folder / "snaphu.conf").write_text(
         "# snaphu -f snaphu.conf Phase_ifg.snaphu.img 64\n", encoding="utf-8"
     )
@@ -61,6 +61,7 @@ class TestThreePhaseOrchestration:
             (target_folder / "UnwPhase_ifg.snaphu.hdr").write_text(
                 "x", encoding="utf-8"
             )
+            (target_folder / "UnwPhase_ifg.snaphu.img").write_bytes(b"data")
 
         monkeypatch.setattr(runner, "execute_xml", fake_execute_xml)
         monkeypatch.setattr(runner.snaphu, "run_snaphu", fake_run_snaphu)
@@ -83,6 +84,7 @@ class TestThreePhaseOrchestration:
             (target_folder / "UnwPhase_ifg.snaphu.hdr").write_text(
                 "x", encoding="utf-8"
             )
+            (target_folder / "UnwPhase_ifg.snaphu.img").write_bytes(b"data")
 
         monkeypatch.setattr(runner, "execute_xml", fake_execute_xml)
         monkeypatch.setattr(runner.snaphu, "run_snaphu", fake_run_snaphu)
@@ -90,7 +92,7 @@ class TestThreePhaseOrchestration:
         result = run_graph(_config(target_folder), registry=registry, quiet=True)
 
         assert isinstance(result, SnaphuRunResult)
-        assert str(target_folder / "Phase_ifg.dim") in result.xml_b
+        assert str(target_folder / "Phase_ifg.snaphu.hdr") in result.xml_b
         assert str(target_folder / "UnwPhase_ifg.snaphu.hdr") in result.xml_b
 
     def test_snaphu_failure_aborts_before_graph_b(

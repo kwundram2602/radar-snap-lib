@@ -254,11 +254,16 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
+    from radar_snap_lib.config import SNAPHU_BIN_VAR, env_value
     from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError
     from radar_snap_lib.snap_ops.runner import run_graph
 
+    snaphu_bin = args.snaphu_bin or env_value(SNAPHU_BIN_VAR) or "snaphu"
+
     try:
-        run_graph(args.config, dump_xml=args.dump_xml, quiet=args.quiet)
+        run_graph(
+            args.config, dump_xml=args.dump_xml, snaphu_bin=snaphu_bin, quiet=args.quiet
+        )
     except GraphConfigError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -325,6 +330,14 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="execute a config through SNAP")
     run.add_argument("config", type=Path)
     run.add_argument("--dump-xml", type=Path, help="also write the graph XML here")
+    run.add_argument(
+        "--snaphu-bin",
+        help=(
+            "path to the snaphu binary, for configs with a SnaphuExport/"
+            "SnaphuImport pair (default: $SNAPHU_BIN env/.env var, or "
+            "'snaphu' on PATH)"
+        ),
+    )
     run.add_argument(
         "--quiet", action="store_true", help="suppress SNAP progress output"
     )

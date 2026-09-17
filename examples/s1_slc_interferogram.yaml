@@ -13,10 +13,10 @@
 
   vars:
     reference: /home/kjell/projects/py_projects/radar-snap-lib/results/s1/petacciato/S1A_IW_SLC__1SDV_20260402T050335_20260402T050402_063896_080959_D909.zip
-    secondary: /home/kjell/projects/py_projects/radar-snap-lib/results/s1/petacciato/S1A_IW_SLC__1SDV_20240113T054321.zip
+    secondary: /home/kjell/projects/py_projects/radar-snap-lib/results/s1/petacciato/S1C_IW_SLC__1SDV_20260408T050246_20260408T050313_007120_00E6B1_F95B.zip
     output: /home/kjell/projects/py_projects/radar-snap-lib/results/s1/petacciato/interferogram.dim
     snaphu_folder: /home/kjell/projects/py_projects/radar-snap-lib/results/s1/petacciato/snaphu
-    subswath: IW2
+    subswath: IW3
     polarisation: VV
 
   pipeline:

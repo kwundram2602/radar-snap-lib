@@ -226,34 +226,96 @@ class TestFindConf:
         (tmp_path / "snaphu.conf").write_text("x", encoding="utf-8")
         assert find_conf(tmp_path) == tmp_path / "snaphu.conf"
 
+    def test_finds_the_conf_file_nested_in_a_product_subdirectory(self, tmp_path: Path):
+        # Real SnaphuExport output: <targetFolder>/<productName>/snaphu.conf,
+        # not directly in <targetFolder> -- confirmed against a real SNAP run.
+        product_dir = tmp_path / "S1A_IW_SLC__1SDV_..._Orb_Stack_Ifg_Deb_ML_Flt"
+        product_dir.mkdir()
+        (product_dir / "snaphu.conf").write_text("x", encoding="utf-8")
+        assert find_conf(tmp_path) == product_dir / "snaphu.conf"
+
     def test_raises_when_missing(self, tmp_path: Path):
         with pytest.raises(RuntimeError, match="No snaphu.conf"):
             find_conf(tmp_path)
 
 
 class TestFindExportedProduct:
-    def test_finds_the_single_dim_file(self, tmp_path: Path):
-        (tmp_path / "Phase_ifg.dim").write_text("x", encoding="utf-8")
-        assert find_exported_product(tmp_path) == tmp_path / "Phase_ifg.dim"
+    def test_finds_the_single_exported_header(self, tmp_path: Path):
+        # Real SnaphuExport output is ENVI format (.hdr/.img pair), not
+        # BEAM-DIMAP (.dim) -- confirmed against a real SNAP run.
+        (tmp_path / "Phase_ifg_IW3_VV_02Apr2026_08Apr2026.snaphu.hdr").write_text(
+            "x", encoding="utf-8"
+        )
+        assert (
+            find_exported_product(tmp_path)
+            == tmp_path / "Phase_ifg_IW3_VV_02Apr2026_08Apr2026.snaphu.hdr"
+        )
+
+    def test_finds_the_exported_header_nested_in_a_product_subdirectory(
+        self, tmp_path: Path
+    ):
+        product_dir = tmp_path / "S1A_IW_SLC__1SDV_..._Orb_Stack_Ifg_Deb_ML_Flt"
+        product_dir.mkdir()
+        (product_dir / "Phase_ifg.snaphu.hdr").write_text("x", encoding="utf-8")
+        assert find_exported_product(tmp_path) == product_dir / "Phase_ifg.snaphu.hdr"
 
     def test_raises_when_missing(self, tmp_path: Path):
         with pytest.raises(RuntimeError, match="No exported"):
             find_exported_product(tmp_path)
 
     def test_raises_when_ambiguous(self, tmp_path: Path):
-        (tmp_path / "a.dim").write_text("x", encoding="utf-8")
-        (tmp_path / "b.dim").write_text("x", encoding="utf-8")
+        (tmp_path / "Phase_a.snaphu.hdr").write_text("x", encoding="utf-8")
+        (tmp_path / "Phase_b.snaphu.hdr").write_text("x", encoding="utf-8")
         with pytest.raises(RuntimeError, match="Multiple exported"):
             find_exported_product(tmp_path)
+
+    def test_does_not_match_the_unwrapped_output_stub(self, tmp_path: Path):
+        # SNAP pre-writes the UnwPhase_*.snaphu.hdr stub (see
+        # TestFindUnwrappedProduct) before snaphu ever runs, so both files
+        # coexist in the same directory when find_exported_product is
+        # called -- confirmed against a real SNAP run.
+        (tmp_path / "Phase_ifg.snaphu.hdr").write_text("x", encoding="utf-8")
+        (tmp_path / "UnwPhase_ifg.snaphu.hdr").write_text("x", encoding="utf-8")
+        assert find_exported_product(tmp_path) == tmp_path / "Phase_ifg.snaphu.hdr"
 
 
 class TestFindUnwrappedProduct:
     def test_finds_the_single_unwrapped_header(self, tmp_path: Path):
         (tmp_path / "UnwPhase_ifg.snaphu.hdr").write_text("x", encoding="utf-8")
+        (tmp_path / "UnwPhase_ifg.snaphu.img").write_bytes(b"data")
         assert find_unwrapped_product(tmp_path) == tmp_path / "UnwPhase_ifg.snaphu.hdr"
+
+    def test_finds_the_unwrapped_header_nested_in_a_product_subdirectory(
+        self, tmp_path: Path
+    ):
+        product_dir = tmp_path / "S1A_IW_SLC__1SDV_..._Orb_Stack_Ifg_Deb_ML_Flt"
+        product_dir.mkdir()
+        (product_dir / "UnwPhase_ifg.snaphu.hdr").write_text("x", encoding="utf-8")
+        (product_dir / "UnwPhase_ifg.snaphu.img").write_bytes(b"data")
+        assert (
+            find_unwrapped_product(tmp_path) == product_dir / "UnwPhase_ifg.snaphu.hdr"
+        )
 
     def test_raises_when_missing(self, tmp_path: Path):
         with pytest.raises(RuntimeError, match="No unwrapped"):
+            find_unwrapped_product(tmp_path)
+
+    def test_raises_when_only_the_pre_written_stub_header_exists(
+        self, tmp_path: Path
+    ):
+        # SnaphuExport pre-writes the .hdr stub during graph A, before
+        # snaphu ever runs -- confirmed against a real SNAP run. If the
+        # sibling .img (snaphu's actual output) never showed up, snaphu
+        # silently failed to produce anything despite exiting zero, and
+        # graph B must not proceed to read a headerless product.
+        (tmp_path / "UnwPhase_ifg.snaphu.hdr").write_text("x", encoding="utf-8")
+        with pytest.raises(RuntimeError, match="snaphu did not write"):
+            find_unwrapped_product(tmp_path)
+
+    def test_raises_when_the_img_exists_but_is_empty(self, tmp_path: Path):
+        (tmp_path / "UnwPhase_ifg.snaphu.hdr").write_text("x", encoding="utf-8")
+        (tmp_path / "UnwPhase_ifg.snaphu.img").write_bytes(b"")
+        with pytest.raises(RuntimeError, match="snaphu did not write"):
             find_unwrapped_product(tmp_path)
 
 

@@ -25,12 +25,14 @@ _TOOL_KEY = "esa-snappy-venv"
 EDL_TOKEN_VAR = "EARTHDATA_TOKEN"
 EDL_USERNAME_VAR = "EARTHDATA_USERNAME"
 EDL_PASSWORD_VAR = "EARTHDATA_PASSWORD"
+SNAPHU_BIN_VAR = "SNAPHU_BIN"
 
 __all__ = [
     "EDL_PASSWORD_VAR",
     "EDL_TOKEN_VAR",
     "EDL_USERNAME_VAR",
     "ENV_VAR",
+    "SNAPHU_BIN_VAR",
     "EarthdataCredentials",
     "earthdata_credentials",
     "ensure_esa_snappy",
@@ -126,6 +128,31 @@ def snappy_site_packages() -> Path:
     raise RuntimeError(f"No site-packages found in esa_snappy venv: {venv}")
 
 
+def _apply_dotenv_to_environ() -> None:
+    """Export every ``.env`` key into ``os.environ`` if not already set there.
+
+    The JVM reads options like ``JAVA_TOOL_OPTIONS`` from the process
+    environment at startup -- a ``.env`` entry that nothing exports into
+    ``os.environ`` is invisible to it, even though ``env_value`` can see it.
+    Must run before ``esa_snappy`` (and the JVM it starts) is imported.
+    """
+    root = _project_root()
+    if root is None:
+        return
+    dotenv = root / ".env"
+    if not dotenv.is_file():
+        return
+    for raw in dotenv.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        name = name.strip().removeprefix("export ").strip()
+        if name in os.environ:
+            continue
+        os.environ[name] = value.strip().strip("'\"")
+
+
 def ensure_esa_snappy() -> Path:
     """Put the ``esa_snappy`` venv on ``sys.path``. Idempotent.
 
@@ -136,6 +163,7 @@ def ensure_esa_snappy() -> Path:
 
     Returns the ``site-packages`` directory that was added.
     """
+    _apply_dotenv_to_environ()
     site_packages = snappy_site_packages()
     entry = str(site_packages)
     if entry not in sys.path:

@@ -67,7 +67,14 @@ def parse_command(conf_path: Path) -> list[str]:
 
 
 def _one_match(target_folder: Path, pattern: str, *, what: str) -> Path:
-    matches = sorted(target_folder.glob(pattern))
+    """Find exactly one match for ``pattern`` under ``target_folder``.
+
+    Searches recursively (``rglob``): a real ``SnaphuExport`` run writes its
+    output one directory level down, in a subdirectory named after the
+    product, not directly into ``target_folder`` -- confirmed against a real
+    SNAP run.
+    """
+    matches = sorted(target_folder.rglob(pattern))
     if not matches:
         raise RuntimeError(f"No {what} found in {target_folder} (pattern {pattern!r})")
     if len(matches) > 1:
@@ -82,21 +89,44 @@ def find_conf(target_folder: Path) -> Path:
 
 
 def find_exported_product(target_folder: Path) -> Path:
-    """Locate the wrapped-phase ``.dim`` product ``SnaphuExport`` wrote."""
-    return _one_match(target_folder, "*.dim", what="exported .dim product")
+    """Locate the wrapped-phase product ``SnaphuExport`` wrote.
+
+    ``SnaphuExport`` writes ENVI format (a ``.hdr``/``.img`` pair named
+    ``Phase_*.snaphu.hdr``/``.img``), not BEAM-DIMAP -- confirmed against a
+    real SNAP run. The ``Phase_`` prefix (rather than a bare ``*.snaphu.hdr``)
+    matters: SNAP pre-writes the ``UnwPhase_*.snaphu.hdr`` stub (see
+    :func:`find_unwrapped_product`) before ``snaphu`` ever runs, so both
+    files coexist in the same directory at the point this is called.
+    """
+    return _one_match(
+        target_folder, "Phase_*.snaphu.hdr", what="exported Phase_*.snaphu.hdr product"
+    )
 
 
 def find_unwrapped_product(target_folder: Path) -> Path:
     """Locate the unwrapped output the ``snaphu`` subprocess wrote.
 
     Naming convention confirmed against SNAP's own
-    ``Snaphu-unwrapping-after.vm`` tool-adapter template.
+    ``Snaphu-unwrapping-after.vm`` tool-adapter template. ``SnaphuExport``
+    itself pre-writes the ``.hdr`` as an empty-data stub during graph A,
+    before ``snaphu`` ever runs -- confirmed against a real SNAP run -- so
+    the ``.hdr``'s mere existence does not prove ``snaphu`` succeeded. The
+    sibling ``.img`` (the file ``snaphu`` itself writes, per its
+    ``OUTFILE`` in ``snaphu.conf``) must also exist and be non-empty.
     """
-    return _one_match(
+    hdr = _one_match(
         target_folder,
         "UnwPhase_*.snaphu.hdr",
         what="unwrapped UnwPhase_*.snaphu.hdr output",
     )
+    img = hdr.with_suffix(".img")
+    if not img.is_file() or img.stat().st_size == 0:
+        raise RuntimeError(
+            f"{hdr}: header exists but snaphu did not write its data file "
+            f"({img}) -- snaphu likely exited zero without actually "
+            f"producing output"
+        )
+    return hdr
 
 
 def run_snaphu(

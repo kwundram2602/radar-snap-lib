@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from radar_snap_lib import config
 from radar_snap_lib.snap_ops import cli
 
 SEARCH_YAML = (
@@ -135,6 +136,43 @@ class TestDumpXmlSplitConfig:
         assert "SnaphuImport" not in out.out
         assert "graph B" in out.err
         assert "run --dump-xml" in out.err
+
+
+class TestRunSnaphuBinResolution:
+    def _run_and_capture(self, tmp_path, monkeypatch, args: list[str]) -> dict:
+        path = tmp_path / "config.yaml"
+        path.write_text(PIPELINE_YAML)
+        seen: dict = {}
+
+        def fake_run_graph(config, **kwargs):
+            seen.update(kwargs)
+            return "<graph/>"
+
+        monkeypatch.setattr(
+            "radar_snap_lib.snap_ops.runner.run_graph", fake_run_graph
+        )
+        assert cli.main(["run", str(path), *args]) == 0
+        return seen
+
+    def test_defaults_to_plain_snaphu_when_unset(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("SNAPHU_BIN", raising=False)
+        # Isolate from this project's own .env, which may itself set
+        # SNAPHU_BIN -- same pattern as tests/test_config.py.
+        monkeypatch.setattr(config, "_project_root", lambda: None)
+        seen = self._run_and_capture(tmp_path, monkeypatch, [])
+        assert seen["snaphu_bin"] == "snaphu"
+
+    def test_falls_back_to_the_snaphu_bin_env_var(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SNAPHU_BIN", "/env/snaphu")
+        seen = self._run_and_capture(tmp_path, monkeypatch, [])
+        assert seen["snaphu_bin"] == "/env/snaphu"
+
+    def test_cli_flag_overrides_the_env_var(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SNAPHU_BIN", "/env/snaphu")
+        seen = self._run_and_capture(
+            tmp_path, monkeypatch, ["--snaphu-bin", "/flag/snaphu"]
+        )
+        assert seen["snaphu_bin"] == "/flag/snaphu"
 
 
 class TestNoFlags:

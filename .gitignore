@@ -14,7 +14,8 @@ results/
 .env
 .claude
 CLAUDE.md
-
+docs/*
+docs_old/*
 # Generated operator reference (`radar-snap gen-registry`); specs stay tracked
 docs/operators.md
 

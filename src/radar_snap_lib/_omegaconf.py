@@ -32,7 +32,7 @@ def _register_resolvers() -> None:
     ``wktAoi: ${aoi_wkt:${vars.aoi}}``.
     """
     if not OmegaConf.has_resolver("aoi_wkt"):
-        OmegaConf.register_new_resolver("aoi_wkt", _resolve_aoi_wkt)
+        OmegaConf.register_resolver("aoi_wkt", _resolve_aoi_wkt)
 
 
 def _suggest(name: str, candidates: Any) -> str:

@@ -21,3 +21,6 @@ docs/operators.md
 
 # Git worktrees for isolated feature work
 .worktrees/
+
+# Local notes
+IDEAS.md

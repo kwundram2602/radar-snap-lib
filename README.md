@@ -193,6 +193,31 @@ prints a note to use `run --dump-xml` instead. `run --dump-xml <path>` writes
 both graphs for a split config, as `<stem>.a<suffix>` and `<stem>.b<suffix>`
 (e.g. `graph.a.xml` and `graph.b.xml` for `--dump-xml graph.xml`).
 
+## Visualising a graph
+
+```bash
+radar-snap visualize examples/s1_grd_gamma0.yaml            # -> s1_grd_gamma0.svg
+radar-snap visualize results/s1/graph.xml -o graph.png      # a graph that ran
+```
+
+Draws a config -- as `run` executes it, `save:` outputs included -- or any GPF
+graph XML, also one saved from SNAP Desktop, with Graphviz:
+
+- every operator is a card, its header coloured by kind (input/output,
+  Sentinel-1, orbit, calibration, geometry/terrain, SAR processing, InSAR,
+  polarimetry, raster/utility, optical), with a legend of the kinds present;
+- the card lists only the parameters that differ from SNAP's defaults, shortened
+  (a WKT region reads `POLYGON (5 pts)`, a path its file name); hovering a card
+  in the SVG shows the operator description and every parameter in full;
+- input files and written products are notes at the top and bottom, a
+  `.SAFE` product by its folder name; `save:` outputs hang off their node;
+- the SnaphuExport -> SnaphuImport hand-over is a dashed edge.
+
+The suffix picks the format: `.svg`, `.png`, `.pdf` need Graphviz' `dot` on
+`PATH`, `.dot` writes the Graphviz source without it. From Python:
+`visualize("pipeline.yaml", vars={...})`, or `render(graph, "graph.svg")` for a
+`Graph`; `graph_from_xml` reads graph XML into a `Graph`.
+
 ## The Python builder API
 
 The same node model, built in code instead of YAML:

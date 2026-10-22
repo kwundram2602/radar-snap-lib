@@ -435,13 +435,22 @@ class OpsConfig:
 
     # -- graph construction ------------------------------------------------ #
 
-    def to_graph(self, *, graph_id: str = "radar-snap") -> Graph:
-        """Validate the config and build the corresponding :class:`Graph`."""
+    def to_graph(
+        self, *, graph_id: str = "radar-snap", include_saves: bool = True
+    ) -> Graph:
+        """Validate the config and build the corresponding :class:`Graph`.
+
+        With ``include_saves`` (and an ``output_dir``) the graph has the Write
+        nodes ``run`` adds for ``save:``, so it is the graph that runs.
+        """
         nodes = self.parse()
         errors = self.validate(nodes)
         if errors:
             raise GraphConfigError(errors, self.source)
 
+        output_dir = self.output_dir
+        if include_saves and output_dir is not None:
+            nodes = [*nodes, *save_write_nodes(nodes, output_dir)]
         return build_graph(dependency_order(nodes), self.registry, graph_id=graph_id)
 
     @staticmethod

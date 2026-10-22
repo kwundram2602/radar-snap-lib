@@ -289,6 +289,29 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_visualize(args: argparse.Namespace) -> int:
+    import xml.etree.ElementTree as ET  # noqa: PLC0415
+
+    from radar_snap_lib.snap_ops.graph import GraphError  # noqa: PLC0415
+    from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError  # noqa: PLC0415
+    from radar_snap_lib.snap_ops.visualization import visualize  # noqa: PLC0415
+
+    source = Path(args.source)
+    if not source.is_file():
+        print(f"Not found: {source}", file=sys.stderr)
+        return 2
+    try:
+        output = visualize(source, args.output)
+    except (GraphConfigError, GraphError, ET.ParseError, ValueError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    except RuntimeError as exc:  # no Graphviz, or dot failed
+        print(exc, file=sys.stderr)
+        return 1
+    print(f"Wrote {output}")
+    return 0
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError
     from radar_snap_lib.snap_ops.runner import run_graph
@@ -388,6 +411,21 @@ def build_parser() -> argparse.ArgumentParser:
     dump.add_argument("config", type=Path)
     dump.add_argument("-o", "--output", type=Path, help="write here instead of stdout")
     dump.set_defaults(func=_cmd_dump_xml)
+
+    visualize = sub.add_parser(
+        "visualize",
+        help="draw a config or a graph XML with Graphviz (svg, png, pdf or dot)",
+    )
+    visualize.add_argument(
+        "source", type=Path, help="pipeline config (YAML) or GPF graph XML"
+    )
+    visualize.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="output file, format from the suffix (default: <source>.svg)",
+    )
+    visualize.set_defaults(func=_cmd_visualize)
 
     run = sub.add_parser("run", help="execute a config through SNAP")
     run.add_argument("config", type=Path)

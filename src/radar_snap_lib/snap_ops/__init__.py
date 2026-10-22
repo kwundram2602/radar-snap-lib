@@ -31,6 +31,12 @@ from radar_snap_lib.snap_ops.registry import (
     load_registry,
 )
 from radar_snap_lib.snap_ops.runner import execute_xml, run_graph
+from radar_snap_lib.snap_ops.visualization import (
+    graph_from_xml,
+    render,
+    to_dot,
+    visualize,
+)
 
 __all__ = [
     "Graph",
@@ -44,6 +50,10 @@ __all__ = [
     "Registry",
     "SourceSpec",
     "execute_xml",
+    "graph_from_xml",
     "load_registry",
+    "render",
     "run_graph",
+    "to_dot",
+    "visualize",
 ]

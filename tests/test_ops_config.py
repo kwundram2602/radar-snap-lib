@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -234,6 +235,16 @@ class TestValidation:
     def test_missing_write_node_warns(self, registry):
         with pytest.warns(UserWarning, match="no 'Write' node"):
             _config({"Read": {"file": "a.zip"}}, registry).validate()
+
+    def test_save_counts_as_output(self, registry):
+        config = _config(
+            {"Read": {"file": "a.zip"}, "Apply-Orbit-File": {"save": True}},
+            registry,
+            output_dir="/out",
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert config.validate() == []
 
     def test_error_message_lists_every_problem(self, registry):
         pipeline = {"Read": {}, "Nope": {}}

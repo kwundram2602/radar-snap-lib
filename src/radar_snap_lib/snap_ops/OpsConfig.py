@@ -338,9 +338,11 @@ class OpsConfig:
 
         errors.extend(self._check_acyclic(nodes))
 
-        if not any(node.op == "Write" for node in nodes):
+        # a `save:` node gets its own Write at run time (see save_write_nodes)
+        if not any(node.op == "Write" for node in nodes) and not saved:
             warnings.warn(
-                "Pipeline has no 'Write' node; GraphProcessor will produce no output.",
+                "Pipeline has no 'Write' node and no 'save:'; GraphProcessor will "
+                "produce no output.",
                 stacklevel=2,
             )
         return errors

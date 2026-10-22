@@ -40,6 +40,7 @@ can be checked without SNAP installed.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,7 @@ RESERVED_KEYS = frozenset({"op", "sources", "save"})
 
 PIPELINE_KEY = "pipeline"
 OUTPUT_DIR_KEY = "output_dir"
+VARS_KEY = "vars"
 
 #: Format for saved intermediates -- BEAM-DIMAP is SNAP-native, so the
 #: products open directly in SNAP Desktop, which is the point of saving them.
@@ -192,8 +194,14 @@ class OpsConfig:
         *,
         registry: Registry | None = None,
         source: str | None = None,
+        vars: Mapping[str, Any] | None = None,
     ) -> OpsConfig:
-        """Load a config from a YAML path, a mapping, or an existing DictConfig."""
+        """Load a config from a YAML path, a mapping, or an existing DictConfig.
+
+        ``vars`` is merged over the config's own ``vars`` section (created if
+        missing), so a caller can fill ``${vars.x}`` placeholders without
+        rewriting the config. A given ``DictConfig`` is not modified.
+        """
         _register_resolvers()
         if isinstance(config, (str, Path)):
             path = Path(config)
@@ -210,6 +218,9 @@ class OpsConfig:
 
         if not isinstance(loaded, DictConfig):
             raise GraphConfigError(["Config root must be a mapping"], source)
+        if vars:
+            loaded = OmegaConf.merge(loaded, {VARS_KEY: dict(vars)})
+            assert isinstance(loaded, DictConfig)
         return cls(loaded, registry=registry, source=source)
 
     @property

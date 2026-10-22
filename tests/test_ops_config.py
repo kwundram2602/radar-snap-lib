@@ -91,6 +91,42 @@ class TestParsing:
         )
         assert config.parse()[0].params["file"] == "/data/x.zip"
 
+    def test_vars_argument_fills_placeholders(self, registry):
+        config = OpsConfig.load(
+            {"pipeline": {"Read": {"file": "${vars.scene}"}}},
+            registry=registry,
+            vars={"scene": "/data/x.zip"},
+        )
+        assert config.parse()[0].params["file"] == "/data/x.zip"
+
+    def test_vars_argument_wins_over_config_vars(self, registry):
+        config = OpsConfig.load(
+            {
+                "vars": {"scene": "/data/old.zip", "pol": "VV"},
+                "pipeline": {
+                    "Read": {"file": "${vars.scene}"},
+                    "Calibration": {"selectedPolarisations": "${vars.pol}"},
+                },
+            },
+            registry=registry,
+            vars={"scene": "/data/new.zip"},
+        )
+        nodes = config.parse()
+        assert nodes[0].params["file"] == "/data/new.zip"
+        assert nodes[1].params["selectedPolarisations"] == "VV"
+
+    def test_vars_argument_keeps_lists_and_leaves_input_alone(self, registry):
+        from omegaconf import OmegaConf
+
+        given = OmegaConf.create(
+            {"pipeline": {"ProductSet-Reader": {"fileList": "${vars.files}"}}}
+        )
+        config = OpsConfig.load(
+            given, registry=registry, vars={"files": ["a.SAFE", "b.SAFE"]}
+        )
+        assert config.parse()[0].params["fileList"] == ["a.SAFE", "b.SAFE"]
+        assert "vars" not in given
+
     def test_missing_pipeline_section(self, registry):
         with pytest.raises(GraphConfigError, match="no 'pipeline' section"):
             OpsConfig.load({"vars": {}}, registry=registry).parse()

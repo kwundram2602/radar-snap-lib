@@ -243,6 +243,28 @@ class TestThreePhaseOrchestration:
         assert calls == [result]
         assert isinstance(result, str)
 
+    def test_vars_reach_the_executed_graph(
+        self, monkeypatch: pytest.MonkeyPatch, registry
+    ):
+        monkeypatch.setattr(runner, "execute_xml", lambda xml, *, quiet=False: None)
+
+        config = {
+            "pipeline": {
+                "Read": {"file": "${vars.scene}"},
+                "Write": {"file": "${vars.out}", "formatName": "BEAM-DIMAP"},
+            }
+        }
+        xml = run_graph(
+            config,
+            registry=registry,
+            quiet=True,
+            vars={"scene": "/data/a.SAFE", "out": "/data/a_out.dim"},
+        )
+
+        assert isinstance(xml, str)
+        assert "/data/a.SAFE" in xml
+        assert "/data/a_out.dim" in xml
+
 
 class TestSaveAndGraphDump:
     """Intermediates written to disk, and the executed graph XML beside them."""

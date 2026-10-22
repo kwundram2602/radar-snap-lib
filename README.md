@@ -120,6 +120,17 @@ from radar_snap_lib.snap_ops import run_graph
 run_graph("pipeline.yaml", dump_xml="graph.xml")
 ```
 
+`vars=` fills `${vars.*}` placeholders from code, merged over the config's own
+`vars` section, so one config runs over many scenes without being rewritten:
+
+```python
+for scene in scenes:
+    run_graph("pipeline.yaml", vars={"scene": scene, "output": out / scene.stem})
+```
+
+`OpsConfig.load(config, vars=...)` takes the same argument, e.g. to validate
+every run before the first one starts.
+
 The config is translated into SNAP's own graph XML and handed to
 `GraphProcessor` -- the same path the `gpt` CLI takes, so the whole chain streams
 tile by tile instead of materialising every intermediate product. The dumped

@@ -19,6 +19,7 @@ design.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -197,6 +198,7 @@ def run_graph(
     registry: Registry | None = None,
     snaphu_bin: str = "snaphu",
     quiet: bool = False,
+    vars: Mapping[str, Any] | None = None,
 ) -> str | SnaphuRunResult:
     """Validate a config, then execute it.
 
@@ -212,6 +214,8 @@ def run_graph(
             ``SnaphuExport``/``SnaphuImport`` pair. Defaults to ``snaphu``
             on ``PATH``.
         quiet: Suppress SNAP's progress output.
+        vars: Values merged over the config's ``vars`` section before it is
+            resolved, e.g. the input scene of one run of a shared config.
 
     Returns:
         The graph XML that was executed, or -- for a config with a
@@ -224,7 +228,7 @@ def run_graph(
             executable (checked before any graph runs), or if the
             ``snaphu`` subprocess itself fails.
     """
-    ops_config = OpsConfig.load(config, registry=registry)
+    ops_config = OpsConfig.load(config, registry=registry, vars=vars)
     nodes = ops_config.parse()
     errors = ops_config.validate(nodes)
     if errors:

@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from radar_snap_lib.snap_ops.cli import _is_pipeline_config
-from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, OpsConfig
+from radar_snap_lib.snap_ops.OpsConfig import (
+    GraphConfigError,
+    OpsConfig,
+    save_write_nodes,
+)
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 GRAPH_EXAMPLES = sorted(p for p in EXAMPLES.glob("*.yaml") if _is_pipeline_config(p))
@@ -278,3 +282,94 @@ class TestSnapAcceptsGeneratedXml:
         config = OpsConfig.load(path, registry=registry)
         graph = graph_io.read(string_reader(config.to_xml()))
         assert len(list(graph.getNodes())) == len(config.parse())
+
+
+class TestSaveAndOutputDir:
+    """Opt-in materialisation of a node's output, plus where it lands.
+
+    The pipeline streams from the SLC zips straight through, so nothing
+    intermediate normally reaches disk -- which makes a product impossible to
+    open in SNAP Desktop and forces a full re-run for every experiment.
+    """
+
+    SAVED = {
+        "Read": {"file": "in.zip"},
+        "Apply-Orbit-File": {"save": True},
+        "Terrain-Correction": {"pixelSpacingInMeter": 10.0, "save": "tc_out"},
+        "Write": {"file": "out.tif", "formatName": "GeoTIFF"},
+    }
+
+    def test_save_true_is_parsed(self, registry):
+        nodes = _config(self.SAVED, registry, output_dir="/out").parse()
+        assert nodes[1].save is True
+
+    def test_save_name_is_parsed(self, registry):
+        nodes = _config(self.SAVED, registry, output_dir="/out").parse()
+        assert nodes[2].save == "tc_out"
+
+    def test_save_defaults_to_none(self, registry):
+        nodes = _config(LINEAR, registry).parse()
+        assert all(n.save is None for n in nodes)
+
+    def test_non_bool_non_str_save_is_rejected(self, registry):
+        pipeline = {**LINEAR, "Apply-Orbit-File": {"save": 3}}
+        with pytest.raises(GraphConfigError, match="save"):
+            _config(pipeline, registry, output_dir="/out").parse()
+
+    def test_save_is_not_passed_to_the_operator(self, registry):
+        """Regression: RESERVED_KEYS must exclude 'save', or _check_params
+        rejects it as an unknown operator parameter."""
+        config = _config(self.SAVED, registry, output_dir="/out")
+        nodes = config.parse()
+
+        assert "save" not in nodes[1].params
+        assert not [e for e in config.validate(nodes) if "save" in e]
+
+    def test_save_without_output_dir_is_an_error(self, registry):
+        config = _config(self.SAVED, registry)
+        errors = config.validate(config.parse())
+        assert any("output_dir" in e for e in errors)
+
+    def test_output_dir_is_exposed(self, registry):
+        assert _config(LINEAR, registry, output_dir="/out").output_dir == Path("/out")
+
+    def test_output_dir_absent_is_none(self, registry):
+        assert _config(LINEAR, registry).output_dir is None
+
+    def test_output_dir_resolves_interpolation(self, registry):
+        config = OpsConfig.load(
+            {"vars": {"out": "/interp"}, "output_dir": "${vars.out}",
+             "pipeline": LINEAR},
+            registry=registry,
+        )
+        assert config.output_dir == Path("/interp")
+
+
+class TestSaveWriteNodes:
+    def test_builds_one_write_node_per_saved_node(self, registry):
+        nodes = _config(TestSaveAndOutputDir.SAVED, registry, output_dir="/out").parse()
+        extra = save_write_nodes(nodes, Path("/out"))
+
+        assert [n.id for n in extra] == [
+            "Apply-Orbit-File__save",
+            "Terrain-Correction__save",
+        ]
+        assert all(n.op == "Write" for n in extra)
+        assert all(n.params["formatName"] == "BEAM-DIMAP" for n in extra)
+
+    def test_save_true_names_the_file_after_the_node(self, registry):
+        nodes = _config(TestSaveAndOutputDir.SAVED, registry, output_dir="/out").parse()
+        extra = save_write_nodes(nodes, Path("/out"))
+
+        assert extra[0].params["file"] == str(Path("/out/Apply-Orbit-File.dim"))
+        assert extra[0].sources == ["Apply-Orbit-File"]
+
+    def test_a_string_save_overrides_the_file_name(self, registry):
+        nodes = _config(TestSaveAndOutputDir.SAVED, registry, output_dir="/out").parse()
+        extra = save_write_nodes(nodes, Path("/out"))
+
+        assert extra[1].params["file"] == str(Path("/out/tc_out.dim"))
+
+    def test_no_saved_nodes_means_no_extra_nodes(self, registry):
+        nodes = _config(LINEAR, registry).parse()
+        assert save_write_nodes(nodes, Path("/out")) == []

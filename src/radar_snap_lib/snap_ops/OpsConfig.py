@@ -56,12 +56,18 @@ __all__ = [
     "ParsedNode",
     "build_graph",
     "dependency_order",
+    "save_write_nodes",
 ]
 
 #: Node-level keys that are structure rather than operator parameters.
-RESERVED_KEYS = frozenset({"op", "sources"})
+RESERVED_KEYS = frozenset({"op", "sources", "save"})
 
 PIPELINE_KEY = "pipeline"
+OUTPUT_DIR_KEY = "output_dir"
+
+#: Format for saved intermediates -- BEAM-DIMAP is SNAP-native, so the
+#: products open directly in SNAP Desktop, which is the point of saving them.
+SAVE_FORMAT = "BEAM-DIMAP"
 
 
 class GraphConfigError(Exception):
@@ -120,6 +126,36 @@ def build_graph(
     return graph
 
 
+def save_write_nodes(nodes: list[ParsedNode], output_dir: Path) -> list[ParsedNode]:
+    """Build a ``Write`` node for every node marked ``save:``.
+
+    The ids follow the same ``<node>__<role>`` convention the runner already
+    uses when it injects reads around the snaphu split.
+
+    Callers must inject these into the graph they are about to build, not into
+    the parsed node list: a split config validates that every node is reachable
+    from one side of the ``SnaphuExport``/``SnaphuImport`` pair, and these
+    ``Write`` nodes are reachable from neither.
+    """
+    extra: list[ParsedNode] = []
+    for node in nodes:
+        if node.save is None or node.save is False:
+            continue
+        name = node.id if node.save is True else str(node.save)
+        extra.append(
+            ParsedNode(
+                id=f"{node.id}__save",
+                op="Write",
+                sources=[node.id],
+                params={
+                    "file": str(output_dir / f"{Path(name).stem}.dim"),
+                    "formatName": SAVE_FORMAT,
+                },
+            )
+        )
+    return extra
+
+
 @dataclass
 class ParsedNode:
     """One pipeline entry after structural parsing, before validation."""
@@ -128,6 +164,9 @@ class ParsedNode:
     op: str
     sources: list[str] = field(default_factory=list)
     params: dict[str, Any] = field(default_factory=dict)
+    #: ``True`` to write this node's output under the config's
+    #: ``output_dir`` named after the node, or a string to name the file.
+    save: bool | str | None = None
 
 
 class OpsConfig:
@@ -172,6 +211,16 @@ class OpsConfig:
         if not isinstance(loaded, DictConfig):
             raise GraphConfigError(["Config root must be a mapping"], source)
         return cls(loaded, registry=registry, source=source)
+
+    @property
+    def output_dir(self) -> Path | None:
+        """Where the graph XML and any saved intermediates are written.
+
+        Optional: without it a run behaves exactly as before, writing no XML.
+        Marking a node ``save:`` without it is a validation error.
+        """
+        raw = _plain(self.config.get(OUTPUT_DIR_KEY))
+        return Path(str(raw)) if raw is not None else None
 
     # -- structural parsing ------------------------------------------------ #
 
@@ -220,6 +269,16 @@ class OpsConfig:
                     self.source,
                 )
 
+            save = body.get("save")
+            if save is not None and not isinstance(save, (bool, str)):
+                raise GraphConfigError(
+                    [
+                        f"Node {node_id!r}: 'save' must be true or a file name, "
+                        f"got {type(save).__name__}"
+                    ],
+                    self.source,
+                )
+
             params = {k: v for k, v in body.items() if k not in RESERVED_KEYS}
             nodes.append(
                 ParsedNode(
@@ -227,6 +286,7 @@ class OpsConfig:
                     op=op,
                     sources=[s for s in sources if s is not None],
                     params=params,
+                    save=save,
                 )
             )
             previous = node_id
@@ -245,6 +305,13 @@ class OpsConfig:
 
         if not nodes:
             return [f"{PIPELINE_KEY!r} is empty"]
+
+        saved = [n.id for n in nodes if n.save is not None and n.save is not False]
+        if saved and self.output_dir is None:
+            errors.append(
+                f"Node(s) {saved!r} use 'save' but the config has no "
+                f"{OUTPUT_DIR_KEY!r} to write them to"
+            )
 
         for node in nodes:
             spec = self.registry.get(node.op)

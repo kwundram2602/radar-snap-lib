@@ -32,6 +32,7 @@ from radar_snap_lib.snap_ops.OpsConfig import (
     ParsedNode,
     build_graph,
     dependency_order,
+    save_write_nodes,
 )
 from radar_snap_lib.snap_ops.registry import Registry
 
@@ -91,6 +92,18 @@ class SnaphuRunResult:
     snaphu_command: list[str]
 
 
+def _dump(xml: str, output_dir: Path | None, name: str) -> None:
+    """Write an executed graph's XML beside the results.
+
+    Called before the graph runs, not after: a run that dies half way is
+    exactly when having the graph on disk is worth something.
+    """
+    if output_dir is None:
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / name).write_text(xml, encoding="utf-8")
+
+
 def _read_node(node_id: str, file_path: Path) -> ParsedNode:
     return ParsedNode(
         id=node_id, op="Read", sources=[], params={"file": str(file_path)}
@@ -102,18 +115,37 @@ def _run_split(
     *,
     registry: Registry,
     dump_xml: Path | str | None,
+    output_dir: Path | None,
+    saves: list[ParsedNode],
     snaphu_bin: str,
     quiet: bool,
 ) -> SnaphuRunResult:
+    # Before anything expensive: graph A is a full coregistration run, and a
+    # missing or non-executable snaphu would otherwise only surface once it
+    # had finished.
+    snaphu.check_binary(snaphu_bin)
+
+    # Each injected Write belongs to whichever half holds the node it saves.
+    graph_a_ids = {n.id for n in split.graph_a}
+    saves_a = [n for n in saves if n.sources[0] in graph_a_ids]
+    saves_b = [n for n in saves if n.sources[0] not in graph_a_ids]
+
     graph_a = build_graph(
-        dependency_order(split.graph_a), registry, graph_id="radar-snap-a"
+        dependency_order([*split.graph_a, *saves_a]),
+        registry,
+        graph_id="radar-snap-a",
     )
     xml_a = graph_a.to_xml()
+    _dump(xml_a, output_dir, "graph.a.xml")
     execute_xml(xml_a, quiet=quiet)
 
     target_folder = Path(str(split.export_node.params["targetFolder"]))
     conf_path = snaphu.find_conf(target_folder)
     exported_product = snaphu.find_exported_product(target_folder)
+
+    # SnaphuExport can name a CORRFILE it never wrote; snaphu would only
+    # report that once per tile, in files nobody reads.
+    snaphu.check_corrfile(conf_path)
 
     snaphu.run_snaphu(conf_path, snaphu_bin=snaphu_bin, quiet=quiet)
 
@@ -133,11 +165,13 @@ def _run_split(
         _read_node(unwrapped_read_id, unwrapped_product),
         import_node,
         *[n for n in split.graph_b if n.id != split.import_node.id],
+        *saves_b,
     ]
     graph_b = build_graph(
         dependency_order(graph_b_nodes), registry, graph_id="radar-snap-b"
     )
     xml_b = graph_b.to_xml()
+    _dump(xml_b, output_dir, "graph.b.xml")
     execute_xml(xml_b, quiet=quiet)
 
     if dump_xml is not None:
@@ -186,7 +220,9 @@ def run_graph(
 
     Raises:
         GraphConfigError: If the config does not describe a valid graph.
-        RuntimeError: If the ``snaphu`` subprocess is missing or fails.
+        RuntimeError: If the ``snaphu`` binary is missing or not
+            executable (checked before any graph runs), or if the
+            ``snaphu`` subprocess itself fails.
     """
     ops_config = OpsConfig.load(config, registry=registry)
     nodes = ops_config.parse()
@@ -194,16 +230,24 @@ def run_graph(
     if errors:
         raise GraphConfigError(errors, ops_config.source)
 
+    output_dir = ops_config.output_dir
+    saves = save_write_nodes(nodes, output_dir) if output_dir is not None else []
+
     split = snaphu.split_at_snaphu(nodes)
     if split is not None:
         return _run_split(
             split,
             registry=ops_config.registry,
             dump_xml=dump_xml,
+            output_dir=output_dir,
+            saves=saves,
             snaphu_bin=snaphu_bin,
             quiet=quiet,
         )
 
-    xml = build_graph(dependency_order(nodes), ops_config.registry).to_xml(dump_xml)
+    xml = build_graph(dependency_order([*nodes, *saves]), ops_config.registry).to_xml(
+        dump_xml
+    )
+    _dump(xml, output_dir, "graph.xml")
     execute_xml(xml, quiet=quiet)
     return xml

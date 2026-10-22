@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -9,6 +10,8 @@ import pytest
 
 from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, ParsedNode
 from radar_snap_lib.snap_ops.snaphu import (
+    check_binary,
+    check_corrfile,
     find_conf,
     find_exported_product,
     find_unwrapped_product,
@@ -375,6 +378,114 @@ class TestRunSnaphu:
 
         with pytest.raises(RuntimeError, match="bad tile geometry"):
             run_snaphu(conf, snaphu_bin="snaphu")
+
+    def test_non_executable_binary_raises_a_clear_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Defense in depth: the runner preflights, but run_snaphu is public
+        API and permissions can change between the check and the exec."""
+        conf = tmp_path / "snaphu.conf"
+        conf.write_text(CONF_TEXT, encoding="utf-8")
+
+        def fake_run(cmd, **kwargs):
+            raise PermissionError(13, "Permission denied", cmd[0])
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        with pytest.raises(RuntimeError, match="chmod \\+x"):
+            run_snaphu(conf, snaphu_bin="/opt/snaphu")
+
+
+class TestCheckBinary:
+    """Preflight resolution of the snaphu binary.
+
+    The motivating bug: SNAP's auxdata unpacker drops Unix permission bits,
+    so ~/.snap/auxdata/snaphu-*/bin/snaphu arrives at mode 644 and every run
+    died with a raw PermissionError -- but only after graph A had already
+    burned through a full coregistration.
+    """
+
+    def test_explicit_path_that_does_not_exist_raises(self, tmp_path: Path):
+        with pytest.raises(RuntimeError, match="snaphu binary not found"):
+            check_binary(str(tmp_path / "nope" / "snaphu"))
+
+    def test_explicit_path_without_the_exec_bit_raises_with_chmod_hint(
+        self, tmp_path: Path
+    ):
+        binary = tmp_path / "snaphu"
+        binary.write_bytes(b"\x7fELF")
+        binary.chmod(0o644)
+
+        with pytest.raises(RuntimeError, match="not executable") as excinfo:
+            check_binary(str(binary))
+
+        message = str(excinfo.value)
+        assert f"chmod +x {binary}" in message
+        assert "auxdata" in message
+
+    def test_executable_path_is_returned(self, tmp_path: Path):
+        binary = tmp_path / "snaphu"
+        binary.write_bytes(b"\x7fELF")
+        binary.chmod(0o755)
+
+        assert check_binary(str(binary)) == binary
+
+    def test_bare_name_is_resolved_on_path(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/snaphu")
+        assert check_binary("snaphu") == Path("/usr/bin/snaphu")
+
+    def test_bare_name_missing_from_path_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+        with pytest.raises(RuntimeError, match="snaphu binary not found"):
+            check_binary("snaphu")
+
+
+class TestCheckCorrfile:
+    """Validation of the CORRFILE that SnaphuExport names in snaphu.conf.
+
+    SnaphuExport writes a ``CORRFILE coh_*.img`` line whenever the source
+    product carries a coherence band, but it does not always write that
+    band's raster to disk. snaphu then dies one opaque line at a time in
+    per-tile child logs, after graph A has already run. Catching it here
+    turns that into one clear message.
+    """
+
+    def _conf(self, tmp_path: Path, body: str) -> Path:
+        conf = tmp_path / "snaphu.conf"
+        conf.write_text(CONF_TEXT + body, encoding="utf-8")
+        return conf
+
+    def test_returns_the_path_when_the_corrfile_exists(self, tmp_path: Path):
+        (tmp_path / "coh_ifg.snaphu.img").write_bytes(b"data")
+        conf = self._conf(tmp_path, "CORRFILE\t\tcoh_ifg.snaphu.img\n")
+
+        assert check_corrfile(conf) == tmp_path / "coh_ifg.snaphu.img"
+
+    def test_raises_when_the_corrfile_is_missing(self, tmp_path: Path):
+        conf = self._conf(tmp_path, "CORRFILE\t\tcoh_ifg.snaphu.img\n")
+
+        with pytest.raises(RuntimeError, match="coh_ifg.snaphu.img") as excinfo:
+            check_corrfile(conf)
+
+        assert "coherence band" in str(excinfo.value)
+
+    def test_returns_none_when_no_corrfile_is_named(self, tmp_path: Path):
+        """snaphu falls back to a constant correlation, which is legal."""
+        assert check_corrfile(self._conf(tmp_path, "")) is None
+
+    def test_ignores_commented_out_corrfile_lines(self, tmp_path: Path):
+        assert check_corrfile(self._conf(tmp_path, "# CORRFILE  coh.img\n")) is None
+
+    def test_resolves_relative_to_the_conf_directory(self, tmp_path: Path):
+        sub = tmp_path / "work"
+        sub.mkdir()
+        (sub / "coh_ifg.snaphu.img").write_bytes(b"data")
+        conf = sub / "snaphu.conf"
+        conf.write_text(CONF_TEXT + "CORRFILE coh_ifg.snaphu.img\n", encoding="utf-8")
+
+        assert check_corrfile(conf) == sub / "coh_ifg.snaphu.img"
 
 
 class TestInterferogramExampleSplit:

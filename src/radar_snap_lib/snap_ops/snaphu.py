@@ -17,6 +17,8 @@ own bundled reference graphs and tool-adapter templates.
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +29,8 @@ __all__ = [
     "EXPORT_OP",
     "IMPORT_OP",
     "SnaphuSplit",
+    "check_binary",
+    "check_corrfile",
     "find_conf",
     "find_exported_product",
     "find_unwrapped_product",
@@ -129,6 +133,90 @@ def find_unwrapped_product(target_folder: Path) -> Path:
     return hdr
 
 
+def check_corrfile(conf_path: Path) -> Path | None:
+    """Verify the coherence file ``conf_path`` names actually exists.
+
+    ``SnaphuExport`` writes a ``CORRFILE`` line whenever the product reaching
+    it carries a coherence band, but it does not reliably write that band's
+    raster alongside it. snaphu then aborts once per tile, deep in
+    ``snaphu_tiles_*/tmptilelog_*`` files nobody reads, after graph A has
+    already been computed in full.
+
+    Returns the resolved path, or ``None`` when the conf names no
+    ``CORRFILE`` at all -- snaphu treats that as "assume a constant
+    correlation" (``snaphu_cost.c``) and runs, so it is not an error here.
+    """
+    for raw in conf_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if parts[0] != "CORRFILE" or len(parts) < 2:
+            continue
+        # snaphu runs with the conf's directory as its working directory,
+        # so a bare filename resolves against that.
+        corrfile = Path(parts[1])
+        resolved = corrfile if corrfile.is_absolute() else conf_path.parent / corrfile
+        if not resolved.is_file():
+            raise RuntimeError(
+                f"{conf_path.name} names a correlation file that was never "
+                f"written: {resolved}\n\n"
+                f"SnaphuExport adds this CORRFILE line when the product "
+                f"reaching it has a coherence band, but it did not write the "
+                f"band's raster. snaphu would abort once per tile.\n\n"
+                f"Make sure a coherence band survives to SnaphuExport "
+                f"(Interferogram needs includeCoherence: true), or drop the "
+                f"CORRFILE line from the conf and add 'DEFAULTCORR 0.4' to "
+                f"unwrap with a constant correlation instead."
+            )
+        return resolved
+    return None
+
+
+def _not_found_message(snaphu_bin: str) -> str:
+    return (
+        f"snaphu binary not found: {snaphu_bin!r}. Install snaphu and ensure "
+        f"it is on PATH, or pass a different snaphu_bin."
+    )
+
+
+def _not_executable_message(path: Path) -> str:
+    return (
+        f"snaphu binary is not executable: {path}\n\n"
+        f"SNAP's auxdata unpacker does not preserve Unix permission bits, so a "
+        f"snaphu it downloaded into ~/.snap/auxdata usually lands without one. "
+        f"Make it executable with:\n\n"
+        f"    chmod +x {path}"
+    )
+
+
+def check_binary(snaphu_bin: str) -> Path:
+    """Resolve ``snaphu_bin`` to a runnable executable, or raise ``RuntimeError``.
+
+    Called before the first graph of a split runs, so that a missing or
+    non-executable binary fails in milliseconds instead of after a full
+    coregistration graph has already been computed -- the failure mode this
+    check exists to prevent.
+    """
+    has_separator = os.sep in snaphu_bin or (
+        os.altsep is not None and os.altsep in snaphu_bin
+    )
+    if has_separator:
+        path = Path(snaphu_bin)
+        if not path.is_file():
+            raise RuntimeError(_not_found_message(snaphu_bin))
+        if not os.access(path, os.X_OK):
+            raise RuntimeError(_not_executable_message(path))
+        return path
+
+    # A bare name: which() already filters on the executable bit, so a
+    # non-executable hit is indistinguishable from no hit at all.
+    found = shutil.which(snaphu_bin)
+    if found is None:
+        raise RuntimeError(_not_found_message(snaphu_bin))
+    return Path(found)
+
+
 def run_snaphu(
     conf_path: Path, *, snaphu_bin: str = "snaphu", quiet: bool = False
 ) -> subprocess.CompletedProcess[bytes]:
@@ -149,10 +237,9 @@ def run_snaphu(
             capture_output=quiet,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError(
-            f"snaphu binary not found: {snaphu_bin!r}. Install snaphu and ensure "
-            f"it is on PATH, or pass a different snaphu_bin."
-        ) from exc
+        raise RuntimeError(_not_found_message(snaphu_bin)) from exc
+    except PermissionError as exc:
+        raise RuntimeError(_not_executable_message(Path(snaphu_bin))) from exc
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.decode(errors="replace") if exc.stderr else ""
         raise RuntimeError(

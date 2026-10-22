@@ -148,9 +148,7 @@ class TestRunSnaphuBinResolution:
             seen.update(kwargs)
             return "<graph/>"
 
-        monkeypatch.setattr(
-            "radar_snap_lib.snap_ops.runner.run_graph", fake_run_graph
-        )
+        monkeypatch.setattr("radar_snap_lib.snap_ops.runner.run_graph", fake_run_graph)
         assert cli.main(["run", str(path), *args]) == 0
         return seen
 
@@ -173,6 +171,109 @@ class TestRunSnaphuBinResolution:
             tmp_path, monkeypatch, ["--snaphu-bin", "/flag/snaphu"]
         )
         assert seen["snaphu_bin"] == "/flag/snaphu"
+
+
+class TestValidateWarnsAboutSnaphu:
+    """validate must stay usable without snaphu installed, so an unusable
+    binary is a warning on stderr and never changes the exit code."""
+
+    def _split_config(self, tmp_path) -> str:
+        path = tmp_path / "split.yaml"
+        path.write_text(
+            "pipeline:\n"
+            "  Read:\n"
+            "    file: src.dim\n"
+            "  SnaphuExport:\n"
+            f"    targetFolder: {tmp_path}\n"
+            "  SnaphuImport:\n"
+            "    sources: SnaphuExport\n"
+            "  Write:\n"
+            "    file: out.dim\n"
+            "    formatName: BEAM-DIMAP\n"
+        )
+        return str(path)
+
+    def test_non_executable_binary_warns_but_exits_zero(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        binary = tmp_path / "snaphu"
+        binary.write_bytes(b"\x7fELF")
+        binary.chmod(0o644)
+
+        code = cli.main(
+            ["validate", self._split_config(tmp_path), "--snaphu-bin", str(binary)]
+        )
+
+        assert code == 0
+        out = capsys.readouterr()
+        assert "OK" in out.out
+        assert "warning:" in out.err
+        assert f"chmod +x {binary}" in out.err
+
+    def test_executable_binary_produces_no_warning(self, tmp_path, monkeypatch, capsys):
+        binary = tmp_path / "snaphu"
+        binary.write_text("#!/bin/sh\nexit 0\n")
+        binary.chmod(0o755)
+
+        code = cli.main(
+            ["validate", self._split_config(tmp_path), "--snaphu-bin", str(binary)]
+        )
+
+        assert code == 0
+        assert "warning:" not in capsys.readouterr().err
+
+    def test_a_config_without_snaphu_is_never_checked(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """No SnaphuExport pair means no reason to care about the binary."""
+        monkeypatch.setenv("SNAPHU_BIN", str(tmp_path / "does-not-exist"))
+        path = tmp_path / "plain.yaml"
+        path.write_text(PIPELINE_YAML)
+
+        assert cli.main(["validate", str(path)]) == 0
+        assert "warning:" not in capsys.readouterr().err
+
+
+class TestDumpXmlIncludesSaves:
+    """dump-xml must show the graph `run` would actually execute."""
+
+    def _config(self, tmp_path, extra: str) -> str:
+        path = tmp_path / "saved.yaml"
+        path.write_text(
+            f"output_dir: {tmp_path}\n"
+            "pipeline:\n"
+            "  Read:\n"
+            "    file: in.zip\n"
+            "  Apply-Orbit-File:\n"
+            "    save: true\n"
+            f"{extra}"
+            "  Write:\n"
+            "    file: out.tif\n"
+            "    formatName: GeoTIFF\n"
+        )
+        return str(path)
+
+    def test_save_node_appears_in_the_dumped_graph(self, tmp_path, capsys):
+        assert cli.main(["dump-xml", self._config(tmp_path, "")]) == 0
+
+        out = capsys.readouterr().out
+        assert "Apply-Orbit-File__save" in out
+        assert str(tmp_path / "Apply-Orbit-File.dim") in out
+
+    def test_split_config_only_dumps_graph_a_saves(self, tmp_path, capsys):
+        extra = (
+            "  SnaphuExport:\n"
+            f"    targetFolder: {tmp_path}\n"
+            "  SnaphuImport:\n"
+            "    sources: SnaphuExport\n"
+            "  Terrain-Correction:\n"
+            "    save: tc\n"
+        )
+        assert cli.main(["dump-xml", self._config(tmp_path, extra)]) == 0
+
+        out = capsys.readouterr().out
+        assert "Apply-Orbit-File__save" in out
+        assert "Terrain-Correction__save" not in out
 
 
 class TestNoFlags:

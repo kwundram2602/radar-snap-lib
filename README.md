@@ -125,6 +125,35 @@ The config is translated into SNAP's own graph XML and handed to
 tile by tile instead of materialising every intermediate product. The dumped
 `graph.xml` opens directly in SNAP Desktop.
 
+### Saving intermediates and the executed graph
+
+A pipeline normally streams straight through without writing anything between
+the input and the final `Write`. Set a top-level `output_dir` and mark any node
+with `save:` to also materialise that node's output as BEAM-DIMAP, which opens
+directly in SNAP Desktop:
+
+```yaml
+output_dir: /data/petacciato
+
+pipeline:
+  Interferogram:
+    includeCoherence: true
+    save: true              # -> /data/petacciato/Interferogram.dim
+  GoldsteinPhaseFiltering:
+    alpha: 1.0
+    save: ifg_filtered      # -> /data/petacciato/ifg_filtered.dim
+```
+
+`save:` is opt-in per node because intermediates are large -- the coregistered
+complex stack for a Sentinel-1 SLC pair runs to several GB per step.
+
+With `output_dir` set, the graph XML that actually ran is written there too, as
+`graph.xml` (or `graph.a.xml` and `graph.b.xml` for a config that splits at
+snaphu). It is written *before* each graph executes, so a run that fails still
+leaves the graph behind to inspect. Without `output_dir` nothing extra is
+written, and `save:` becomes a config error. The separate `--dump-xml` flag
+still works and is independent of this.
+
 ### SnaphuExport / SnaphuImport (phase unwrapping)
 
 A pipeline containing a `SnaphuExport` -> `SnaphuImport` pair needs the
@@ -137,6 +166,15 @@ isn't on `PATH`, either set `SNAPHU_BIN` (as an environment variable or in
 `.env`, resolved the same way as `ESA_SNAPPY_VENV`) or pass `--snaphu-bin` to
 `radar-snap run` (which takes precedence over `SNAPHU_BIN`); the same value
 can be passed as `snaphu_bin=` to `run_graph` from Python.
+
+A `snaphu` that SNAP downloaded itself (into
+`~/.snap/auxdata/snaphu-*/bin/snaphu`) usually arrives **without its executable
+bit** -- SNAP's auxdata unpacker does not preserve Unix permissions -- so it
+needs a one-off `chmod +x` before any run can use it. `run` checks the binary
+before executing the first graph rather than at the point of invocation, so
+this fails immediately instead of after a full coregistration has been
+computed; `validate` reports the same problem as a warning without changing its
+exit code, so it still works on machines with no `snaphu` at all.
 
 For a split config, `dump-xml` only emits graph A's XML (graph B depends on
 files `snaphu` writes at run time, so it can't be dumped statically) and

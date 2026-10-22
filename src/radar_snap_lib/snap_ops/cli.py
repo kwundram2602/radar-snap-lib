@@ -102,6 +102,32 @@ def _is_pipeline_config(source: Path | DictConfig) -> bool:
     return isinstance(loaded, DictConfig) and "pipeline" in loaded
 
 
+def _resolve_snaphu_bin(args: argparse.Namespace) -> str:
+    """Resolve the snaphu binary the same way for every subcommand."""
+    from radar_snap_lib.config import SNAPHU_BIN_VAR, env_value  # noqa: PLC0415
+
+    return getattr(args, "snaphu_bin", None) or env_value(SNAPHU_BIN_VAR) or "snaphu"
+
+
+def _warn_if_snaphu_unusable(snaphu_bin: str) -> None:
+    """Report an unusable snaphu binary without failing the command.
+
+    ``validate`` is documented to work without SNAP or snaphu installed, so
+    this stays a warning and leaves the exit code alone -- it only buys the
+    user the earliest possible notice that a later ``run`` would abort.
+    """
+    from radar_snap_lib.snap_ops.snaphu import check_binary  # noqa: PLC0415
+
+    try:
+        check_binary(snaphu_bin)
+    except RuntimeError as exc:
+        print(
+            f"warning: this config has a SnaphuExport/SnaphuImport pair, but "
+            f"`radar-snap run` would not get past it:\n{exc}",
+            file=sys.stderr,
+        )
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     try:
         loaded = _load_source(Path(args.config))
@@ -113,18 +139,21 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, OpsConfig
         from radar_snap_lib.snap_ops.snaphu import split_at_snaphu
 
+        split = None
         try:
             config = OpsConfig.load(loaded, source=str(args.config))
             nodes = config.parse()
             errors = config.validate(nodes)
             if not errors:
-                split_at_snaphu(nodes)
+                split = split_at_snaphu(nodes)
         except GraphConfigError as exc:
             print(exc, file=sys.stderr)
             return 1
         if errors:
             print(GraphConfigError(errors, str(args.config)), file=sys.stderr)
             return 1
+        if split is not None:
+            _warn_if_snaphu_unusable(_resolve_snaphu_bin(args))
     else:
         from radar_snap_lib.search.SearchConfig import SearchConfig, SearchConfigError
 
@@ -207,6 +236,7 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
         OpsConfig,
         build_graph,
         dependency_order,
+        save_write_nodes,
     )
     from radar_snap_lib.snap_ops.snaphu import split_at_snaphu
 
@@ -222,17 +252,23 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
         errors = config.validate(nodes)
         if errors:
             raise GraphConfigError(errors, config.source)
+        # Mirror what `run` executes: it injects a Write per `save:` node.
+        output_dir = config.output_dir
+        saves = save_write_nodes(nodes, output_dir) if output_dir is not None else []
+
         split = split_at_snaphu(nodes)
         if split is not None:
+            graph_a_ids = {n.id for n in split.graph_a}
+            saves_a = [n for n in saves if n.sources[0] in graph_a_ids]
             xml = build_graph(
-                dependency_order(split.graph_a),
+                dependency_order([*split.graph_a, *saves_a]),
                 config.registry,
                 graph_id="radar-snap-a",
             ).to_xml(args.output)
         else:
-            xml = build_graph(dependency_order(nodes), config.registry).to_xml(
-                args.output
-            )
+            xml = build_graph(
+                dependency_order([*nodes, *saves]), config.registry
+            ).to_xml(args.output)
     except GraphConfigError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -254,11 +290,10 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    from radar_snap_lib.config import SNAPHU_BIN_VAR, env_value
     from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError
     from radar_snap_lib.snap_ops.runner import run_graph
 
-    snaphu_bin = args.snaphu_bin or env_value(SNAPHU_BIN_VAR) or "snaphu"
+    snaphu_bin = _resolve_snaphu_bin(args)
 
     try:
         run_graph(
@@ -270,8 +305,27 @@ def _cmd_run(args: argparse.Namespace) -> int:
     except RuntimeError as exc:
         print(exc, file=sys.stderr)
         return 1
+
     print(f"{args.config}: done")
+    _report_written(args.config)
     return 0
+
+
+def _report_written(config_path: Path) -> None:
+    """List the graph XML and saved intermediates, if the config asked for any."""
+    from radar_snap_lib.snap_ops.OpsConfig import OpsConfig  # noqa: PLC0415
+
+    try:
+        output_dir = OpsConfig.load(config_path).output_dir
+    except Exception:  # noqa: BLE001 - reporting must never fail a finished run
+        return
+    if output_dir is None:
+        return
+    written = sorted(p for p in output_dir.glob("graph*.xml")) + sorted(
+        output_dir.glob("*.dim")
+    )
+    for path in written:
+        print(f"  wrote {path}")
 
 
 def _cmd_gen_registry(_: argparse.Namespace) -> int:
@@ -308,6 +362,14 @@ def build_parser() -> argparse.ArgumentParser:
         "validate", help="check a config (graph or search) without running it"
     )
     validate.add_argument("config", type=Path)
+    validate.add_argument(
+        "--snaphu-bin",
+        help=(
+            "path to the snaphu binary to check, for configs with a "
+            "SnaphuExport/SnaphuImport pair (default: $SNAPHU_BIN env/.env "
+            "var, or 'snaphu' on PATH); an unusable binary is only a warning"
+        ),
+    )
     validate.set_defaults(func=_cmd_validate)
 
     search_cmd = sub.add_parser(

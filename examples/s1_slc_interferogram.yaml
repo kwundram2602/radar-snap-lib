@@ -11,6 +11,9 @@
   # shells out to the `snaphu` binary in between (see
   # docs/superpowers/specs/2026-08-05-snaphu-subprocess-design.md).
 
+  # Where the executed graph XML and any `save:` intermediates are written.
+  output_dir: /home/kjell/projects/py_projects/radar-snap-lib/results/s1/petacciato
+
   vars:
     reference: /home/kjell/projects/py_projects/radar-snap-lib/results/s1/petacciato/S1A_IW_SLC__1SDV_20260402T050335_20260402T050402_063896_080959_D909.zip
     secondary: /home/kjell/projects/py_projects/radar-snap-lib/results/s1/petacciato/S1C_IW_SLC__1SDV_20260408T050246_20260408T050313_007120_00E6B1_F95B.zip
@@ -74,6 +77,9 @@
 
     GoldsteinPhaseFiltering:
       alpha: 1.0
+      # Materialised as BEAM-DIMAP so it opens in SNAP Desktop; this is
+      # the product to hand to SnaphuExport by hand.
+      save: ifg_filtered
 
     SnaphuExport:
       targetFolder: ${vars.snaphu_folder}

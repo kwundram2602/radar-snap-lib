@@ -1,3 +1,5 @@
+# @format
+
 # Sentinel-1 SLC -> calibrated, terrain-corrected sigma0 backscatter.
 #
 #   radar-snap validate examples/s1_slc_standard.yaml

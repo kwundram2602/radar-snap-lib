@@ -20,6 +20,17 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]
+# DeepDespeckle pipeline node: deepdespeckling with CPU torch (~200 MB) or, for
+# an NVIDIA GPU, CUDA torch (several GB). The two conflict -- pick one:
+#   uv sync --extra despeckle   |   uv sync --extra despeckle-cu128
+despeckle = [
+    "deepdespeckling @ git+https://github.com/kwundram2602/deepdespeckling.git@main",
+    "torch>=2.6",
+]
+despeckle-cu128 = [
+    "deepdespeckling @ git+https://github.com/kwundram2602/deepdespeckling.git@main",
+    "torch>=2.6",
+]
 
 [project.scripts]
 install-local = "scripts.install_local:main"
@@ -32,6 +43,10 @@ Repository = ""
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+# the despeckle extras pin deepdespeckling to the fork by git URL
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/radar_snap_lib"]
@@ -53,6 +68,25 @@ addopts = "-m 'not network'"
 #   1. environment variable  ESA_SNAPPY_VENV=/path/to/esa_snappy_env/.venv
 #   2. a `.env` file in the project root (see .env.example)
 esa-snappy-venv = "/home/kjell/projects/py_projects/esa_snappy_env/.venv"
+
+[tool.uv]
+conflicts = [[{ extra = "despeckle" }, { extra = "despeckle-cu128" }]]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "despeckle" },
+    { index = "pytorch-cu128", extra = "despeckle-cu128" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [tool.ruff]
 line-length = 88

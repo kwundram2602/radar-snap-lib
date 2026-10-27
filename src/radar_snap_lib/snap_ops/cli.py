@@ -17,6 +17,8 @@ from radar_snap_lib.snap_ops.registry import Registry, load_registry
 if TYPE_CHECKING:
     from omegaconf import DictConfig
 
+    from radar_snap_lib.snap_ops.segments import Segment
+
 __all__ = ["main"]
 
 
@@ -40,7 +42,9 @@ def _cmd_ops(args: argparse.Namespace) -> int:
 
 
 def _cmd_describe(args: argparse.Namespace) -> int:
-    registry = load_registry()
+    from radar_snap_lib.snap_ops.external import with_external  # noqa: PLC0415
+
+    registry = with_external(load_registry())
     spec = registry.get(args.operator)
     if spec is None:
         print(f"Unknown operator: {args.operator}", file=sys.stderr)
@@ -128,6 +132,19 @@ def _warn_if_snaphu_unusable(snaphu_bin: str) -> None:
         )
 
 
+def _warn_if_external_unusable(segments: list[Segment]) -> None:
+    """Report a missing package for an external node, without failing."""
+    from radar_snap_lib.snap_ops.segments import check_requirements  # noqa: PLC0415
+
+    try:
+        check_requirements(segments)
+    except RuntimeError as exc:
+        print(
+            f"warning: `radar-snap run` would stop before the first graph:\n{exc}",
+            file=sys.stderr,
+        )
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     try:
         loaded = _load_source(Path(args.config))
@@ -137,14 +154,16 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
     if _is_pipeline_config(loaded):
         from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, OpsConfig
+        from radar_snap_lib.snap_ops.segments import split_at_external
         from radar_snap_lib.snap_ops.snaphu import split_at_snaphu
 
-        split = None
+        split = segments = None
         try:
             config = OpsConfig.load(loaded, source=str(args.config))
             nodes = config.parse()
             errors = config.validate(nodes)
             if not errors:
+                segments = split_at_external(nodes, config.output_dir)
                 split = split_at_snaphu(nodes)
         except GraphConfigError as exc:
             print(exc, file=sys.stderr)
@@ -154,6 +173,8 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             return 1
         if split is not None:
             _warn_if_snaphu_unusable(_resolve_snaphu_bin(args))
+        if segments is not None:
+            _warn_if_external_unusable(segments)
     else:
         from radar_snap_lib.search.SearchConfig import SearchConfig, SearchConfigError
 
@@ -238,6 +259,7 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
         dependency_order,
         save_write_nodes,
     )
+    from radar_snap_lib.snap_ops.segments import segment_xmls, split_at_external
     from radar_snap_lib.snap_ops.snaphu import split_at_snaphu
 
     try:
@@ -255,6 +277,10 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
         # Mirror what `run` executes: it injects a Write per `save:` node.
         output_dir = config.output_dir
         saves = save_write_nodes(nodes, output_dir) if output_dir is not None else []
+
+        segments = split_at_external(nodes, output_dir)
+        if segments is not None:
+            return _dump_segments(segment_xmls(segments, config.registry), args.output)
 
         split = split_at_snaphu(nodes)
         if split is not None:
@@ -286,6 +312,32 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
             "writes both graphs after actually running.",
             file=sys.stderr,
         )
+    return 0
+
+
+def _dump_segments(xmls: list[str | None], output: Path | None) -> int:
+    """Emit every graph of a config split around external nodes.
+
+    All of them, unlike for snaphu: the files the external nodes hand over
+    have fixed names, so no graph depends on what a run produces.
+    """
+    import string  # noqa: PLC0415
+
+    for letter, xml in zip(string.ascii_lowercase, xmls, strict=False):
+        if xml is None:
+            continue
+        if output is None:
+            print(f"<!-- graph {letter} -->")
+            print(xml, end="")
+        else:
+            path = output.with_name(f"{output.stem}.{letter}{output.suffix}")
+            path.write_text(xml, encoding="utf-8")
+            print(f"Wrote {path}")
+    print(
+        "\nThis config runs nodes outside SNAP, so it is one graph per stretch "
+        "between them (a, b, ...).",
+        file=sys.stderr,
+    )
     return 0
 
 

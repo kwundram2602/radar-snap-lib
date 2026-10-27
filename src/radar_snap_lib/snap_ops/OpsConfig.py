@@ -34,7 +34,9 @@ Neither reserved key can collide with a real parameter: no SNAP operator has a
 parameter named ``op`` or ``sources``.
 
 Validation runs entirely against the committed operator registry, so a config
-can be checked without SNAP installed.
+can be checked without SNAP installed. Nodes that run in Python instead of SNAP
+(``DeepDespeckle``, see :mod:`radar_snap_lib.snap_ops.external`) are validated
+the same way.
 """
 
 from __future__ import annotations
@@ -48,6 +50,7 @@ from typing import Any
 from omegaconf import DictConfig, OmegaConf
 
 from radar_snap_lib._omegaconf import _plain, _register_resolvers, _suggest
+from radar_snap_lib.snap_ops.external import EXTERNAL_OPS, with_external
 from radar_snap_lib.snap_ops.graph import Graph
 from radar_snap_lib.snap_ops.registry import OperatorSpec, Registry, load_registry
 
@@ -55,6 +58,7 @@ __all__ = [
     "GraphConfigError",
     "OpsConfig",
     "ParsedNode",
+    "ancestors",
     "build_graph",
     "dependency_order",
     "save_write_nodes",
@@ -111,6 +115,21 @@ def dependency_order(nodes: list[ParsedNode]) -> list[ParsedNode]:
     for node in nodes:
         visit(node.id)
     return order
+
+
+def ancestors(node_id: str, by_id: Mapping[str, ParsedNode]) -> set[str]:
+    """``node_id`` and every node it reads from, directly or not."""
+    seen: set[str] = set()
+
+    def visit(current: str) -> None:
+        if current in seen or current not in by_id:
+            return
+        seen.add(current)
+        for source in by_id[current].sources:
+            visit(source)
+
+    visit(node_id)
+    return seen
 
 
 def build_graph(
@@ -182,7 +201,9 @@ class OpsConfig:
         source: str | None = None,
     ) -> None:
         self.config = config
-        self.registry = registry if registry is not None else load_registry()
+        self.registry = with_external(
+            registry if registry is not None else load_registry()
+        )
         self.source = source
 
     # -- loading ----------------------------------------------------------- #
@@ -335,11 +356,22 @@ class OpsConfig:
 
             errors.extend(self._check_sources(node, spec, known_ids))
             errors.extend(self._check_params(node, spec))
+            if node.op in EXTERNAL_OPS:
+                errors.extend(EXTERNAL_OPS[node.op].check(node))
+
+        external = [n.id for n in nodes if n.op in EXTERNAL_OPS]
+        if external and self.output_dir is None:
+            errors.append(
+                f"Node(s) {external!r} run outside SNAP and need the config's "
+                f"{OUTPUT_DIR_KEY!r} for the files they hand over"
+            )
 
         errors.extend(self._check_acyclic(nodes))
 
-        # a `save:` node gets its own Write at run time (see save_write_nodes)
-        if not any(node.op == "Write" for node in nodes) and not saved:
+        # a `save:` node gets its own Write at run time (see save_write_nodes),
+        # an external node writes its own output
+        has_output = saved or external
+        if not any(node.op == "Write" for node in nodes) and not has_output:
             warnings.warn(
                 "Pipeline has no 'Write' node and no 'save:'; GraphProcessor will "
                 "produce no output.",
@@ -463,5 +495,19 @@ class OpsConfig:
         return dependency_order(nodes)
 
     def to_xml(self, path: Path | str | None = None) -> str:
-        """Validate and serialise straight to GPF graph XML."""
+        """Validate and serialise straight to GPF graph XML.
+
+        Not for a config with external nodes: that is several graphs, see
+        :func:`radar_snap_lib.snap_ops.segments.split_at_external`.
+        """
+        external = [n.id for n in self.parse() if n.op in EXTERNAL_OPS]
+        if external:
+            raise GraphConfigError(
+                [
+                    f"Node(s) {external!r} run outside SNAP, so this config is "
+                    f"several graphs, not one -- use `radar-snap dump-xml` or "
+                    f"`run_graph`"
+                ],
+                self.source,
+            )
         return self.to_graph().to_xml(path)

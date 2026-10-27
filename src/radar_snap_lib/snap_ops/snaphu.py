@@ -23,7 +23,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, ParsedNode
+from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, ParsedNode, ancestors
 
 __all__ = [
     "EXPORT_OP",
@@ -257,20 +257,6 @@ class SnaphuSplit:
     graph_b: list[ParsedNode]
 
 
-def _ancestors(node_id: str, by_id: dict[str, ParsedNode]) -> set[str]:
-    seen: set[str] = set()
-
-    def visit(current: str) -> None:
-        if current in seen or current not in by_id:
-            return
-        seen.add(current)
-        for source in by_id[current].sources:
-            visit(source)
-
-    visit(node_id)
-    return seen
-
-
 def _descendants(node_id: str, by_id: dict[str, ParsedNode]) -> set[str]:
     children: dict[str, list[str]] = {n: [] for n in by_id}
     for node in by_id.values():
@@ -350,7 +336,7 @@ def split_at_snaphu(nodes: list[ParsedNode]) -> SnaphuSplit | None:
         )
 
     by_id = {n.id: n for n in nodes}
-    graph_a_ids = _ancestors(export_node.id, by_id)
+    graph_a_ids = ancestors(export_node.id, by_id)
     graph_b_ids = _descendants(import_node.id, by_id)
 
     overlap = graph_a_ids & graph_b_ids

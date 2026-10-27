@@ -15,10 +15,16 @@ graph B from two freshly injected ``Read`` nodes through the rest of the
 pipeline. Configs without that pair are unaffected. See
 docs/superpowers/specs/2026-08-05-snaphu-subprocess-design.md for the full
 design.
+
+The same goes for a config with nodes that run in Python (``DeepDespeckle``):
+``run_graph`` splits it around them (see ``snap_ops.segments``) and runs the
+SNAP graphs and the Python steps in turn, handing over BEAM-DIMAP files in
+the config's ``output_dir``.
 """
 
 from __future__ import annotations
 
+import string
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +32,7 @@ from typing import Any
 
 from omegaconf import DictConfig
 
+from radar_snap_lib.despeckle.dimap import remove_product
 from radar_snap_lib.snap_ops import snaphu
 from radar_snap_lib.snap_ops.OpsConfig import (
     GraphConfigError,
@@ -36,8 +43,15 @@ from radar_snap_lib.snap_ops.OpsConfig import (
     save_write_nodes,
 )
 from radar_snap_lib.snap_ops.registry import Registry
+from radar_snap_lib.snap_ops.segments import (
+    ExternalStep,
+    Segment,
+    check_requirements,
+    segment_xmls,
+    split_at_external,
+)
 
-__all__ = ["SnaphuRunResult", "execute_xml", "run_graph"]
+__all__ = ["SegmentedRunResult", "SnaphuRunResult", "execute_xml", "run_graph"]
 
 
 def _graph_classes() -> tuple[Any, Any, Any, Any, Any, Any]:
@@ -91,6 +105,25 @@ class SnaphuRunResult:
     xml_a: str
     xml_b: str
     snaphu_command: list[str]
+
+
+@dataclass
+class SegmentedRunResult:
+    """Result of a run split around external (Python) nodes.
+
+    ``run_graph`` returns this instead of a plain ``str`` whenever the config
+    has a node that runs outside SNAP, such as ``DeepDespeckle``.
+    """
+
+    #: The SNAP graphs that ran, in order.
+    xmls: list[str]
+    #: The external steps that ran, in order, with the files they read and wrote.
+    steps: list[ExternalStep]
+
+
+def _lettered(path: Path, letter: str) -> Path:
+    """``graph.xml`` -> ``graph.a.xml``."""
+    return path.with_name(f"{path.stem}.{letter}{path.suffix}")
 
 
 def _dump(xml: str, output_dir: Path | None, name: str) -> None:
@@ -191,6 +224,43 @@ def _run_split(
     )
 
 
+def _run_segments(
+    segments: list[Segment],
+    *,
+    registry: Registry,
+    dump_xml: Path | str | None,
+    output_dir: Path | None,
+    quiet: bool,
+) -> SegmentedRunResult:
+    # Before anything runs: the graph in front of an external node is usually
+    # the expensive part.
+    check_requirements(segments)
+
+    # Every file name is known up front, so all graphs are built -- and
+    # dumped -- before the first one runs.
+    xmls = segment_xmls(segments, registry)
+    for letter, xml in zip(string.ascii_lowercase, xmls, strict=False):
+        if xml is None:
+            continue
+        _dump(xml, output_dir, f"graph.{letter}.xml")
+        if dump_xml is not None:
+            _lettered(Path(dump_xml), letter).write_text(xml, encoding="utf-8")
+
+    for segment, xml in zip(segments, xmls, strict=True):
+        if xml is not None:
+            execute_xml(xml, quiet=quiet)
+        step = segment.step
+        if step is not None:
+            step.op.run(step.input, step.output, step.op.params(step.node))
+            if step.remove_input:
+                remove_product(step.input)
+
+    return SegmentedRunResult(
+        xmls=[xml for xml in xmls if xml is not None],
+        steps=[s.step for s in segments if s.step is not None],
+    )
+
+
 def run_graph(
     config: str | Path | DictConfig | dict[str, Any],
     *,
@@ -199,16 +269,16 @@ def run_graph(
     snaphu_bin: str = "snaphu",
     quiet: bool = False,
     vars: Mapping[str, Any] | None = None,
-) -> str | SnaphuRunResult:
+) -> str | SnaphuRunResult | SegmentedRunResult:
     """Validate a config, then execute it.
 
     Args:
         config: Path to a YAML config, a mapping, or a ``DictConfig``.
         dump_xml: Write the generated graph XML here before running. Handy for
             debugging -- the file opens directly in SNAP Desktop. For a
-            config with a ``SnaphuExport``/``SnaphuImport`` pair, two files
-            are written instead (suffixed ``.a``/``.b``), since there are
-            two graphs.
+            config with a ``SnaphuExport``/``SnaphuImport`` pair or an
+            external node, one file per graph is written instead (suffixed
+            ``.a``, ``.b``, ...).
         registry: Operator registry override, mainly for tests.
         snaphu_bin: The ``snaphu`` executable to invoke, for configs with a
             ``SnaphuExport``/``SnaphuImport`` pair. Defaults to ``snaphu``
@@ -220,13 +290,16 @@ def run_graph(
     Returns:
         The graph XML that was executed, or -- for a config with a
         ``SnaphuExport``/``SnaphuImport`` pair -- a :class:`SnaphuRunResult`
-        with both graphs' XML and the ``snaphu`` command that ran.
+        with both graphs' XML and the ``snaphu`` command that ran, or -- for a
+        config with an external node -- a :class:`SegmentedRunResult`.
 
     Raises:
         GraphConfigError: If the config does not describe a valid graph.
         RuntimeError: If the ``snaphu`` binary is missing or not
             executable (checked before any graph runs), or if the
-            ``snaphu`` subprocess itself fails.
+            ``snaphu`` subprocess itself fails, or if an external node's
+            Python package is not installed (also checked before any graph
+            runs).
     """
     ops_config = OpsConfig.load(config, registry=registry, vars=vars)
     nodes = ops_config.parse()
@@ -236,6 +309,16 @@ def run_graph(
 
     output_dir = ops_config.output_dir
     saves = save_write_nodes(nodes, output_dir) if output_dir is not None else []
+
+    segments = split_at_external(nodes, output_dir)
+    if segments is not None:
+        return _run_segments(
+            segments,
+            registry=ops_config.registry,
+            dump_xml=dump_xml,
+            output_dir=output_dir,
+            quiet=quiet,
+        )
 
     split = snaphu.split_at_snaphu(nodes)
     if split is not None:

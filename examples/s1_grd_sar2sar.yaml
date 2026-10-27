@@ -1,0 +1,49 @@
+# Sentinel-1 GRD -> SAR2SAR-despeckled, terrain-corrected gamma0.
+#
+#   radar-snap validate examples/s1_grd_sar2sar.yaml
+#   radar-snap run examples/s1_grd_sar2sar.yaml
+#
+# DeepDespeckle runs in Python (deepdespeckling, the 'despeckle' extra), not in
+# SNAP; `run` splits the pipeline around it and hands over BEAM-DIMAP files in
+# output_dir. SAR2SAR despeckles the amplitude bands -- or, after
+# ThermalNoiseRemoval, the intensity bands, as their square root -- and takes
+# the place Speckle-Filter has in s1_grd_gamma0.yaml, before Calibration.
+
+vars:
+  scene: /data/s1/S1A_IW_GRDH_1SDV_20240101T054321_20240101T054346_051234_062ABC_1234.zip
+
+output_dir: /data/s1/sar2sar
+
+pipeline:
+  Read:
+    file: ${vars.scene}
+
+  Apply-Orbit-File:
+    orbitType: Sentinel Precise (Auto Download)
+    continueOnFail: true
+
+  Remove-GRD-Border-Noise:
+    borderLimit: 500
+    trimThreshold: 0.5
+
+  ThermalNoiseRemoval:
+    removeThermalNoise: true
+
+  DeepDespeckle:
+    method: sar2sar
+
+  Calibration:
+    outputBetaBand: true
+    outputSigmaBand: false
+
+  Terrain-Flattening:
+    demName: Copernicus 30m Global DEM
+
+  Terrain-Correction:
+    demName: Copernicus 30m Global DEM
+    pixelSpacingInMeter: 10.0
+    mapProjection: WGS84(DD)
+
+  Write:
+    file: ${output_dir}/gamma0_sar2sar_tc.tif
+    formatName: GeoTIFF

@@ -1,0 +1,52 @@
+# Sentinel-1 SLC -> MERLIN-despeckled, calibrated, terrain-corrected sigma0.
+#
+#   radar-snap validate examples/s1_slc_merlin.yaml
+#   radar-snap dump-xml examples/s1_slc_merlin.yaml -o /tmp/graph.xml
+#   radar-snap run examples/s1_slc_merlin.yaml
+#
+# DeepDespeckle runs in Python (deepdespeckling, the 'despeckle' extra), not in
+# SNAP. `run` splits the pipeline around it: graph a writes the deburst product
+# to output_dir as BEAM-DIMAP, MERLIN despeckles it into DeepDespeckle.dim,
+# graph b reads that and carries on. MERLIN works on the complex i/q bands, so
+# it has to come before anything that detects (Multilook, Calibration to
+# intensity); afterwards the product looks like a GRD (Amplitude_*/Intensity_*).
+
+vars:
+  scene: /data/s1/S1A_IW_SLC__1SDV_20240627T171631_20240627T171658_054512_06A24B_4234.zip
+  subswath: IW2
+  polarisation: VV
+
+output_dir: /data/s1/merlin
+
+pipeline:
+  Read:
+    file: ${vars.scene}
+
+  Apply-Orbit-File:
+    orbitType: Sentinel Precise (Auto Download)
+    continueOnFail: true
+
+  TOPSAR-Split:
+    subswath: ${vars.subswath}
+    selectedPolarisations: ${vars.polarisation}
+    firstBurstIndex: 3
+    lastBurstIndex: 4
+
+  TOPSAR-Deburst:
+    selectedPolarisations: ${vars.polarisation}
+
+  DeepDespeckle:
+    method: merlin
+    model: Sentinel-TOPS
+
+  Calibration:
+    outputSigmaBand: true
+
+  Terrain-Correction:
+    demName: Copernicus 30m Global DEM
+    pixelSpacingInMeter: 10.0
+    mapProjection: WGS84(DD)
+
+  Write:
+    file: ${output_dir}/sigma0_merlin_tc.tif
+    formatName: GeoTIFF

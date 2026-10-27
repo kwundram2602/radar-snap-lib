@@ -26,6 +26,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from radar_snap_lib.snap_ops.external import EXTERNAL_CLS_PREFIX, is_external
 from radar_snap_lib.snap_ops.graph import Graph
 from radar_snap_lib.snap_ops.nodes import Node
 from radar_snap_lib.snap_ops.OpsConfig import OpsConfig
@@ -46,6 +47,7 @@ SAVE_SUFFIX = "__save"
 #: (category, header colour, Java package prefixes); the first match wins, so
 #: the specific SAR packages come before the generic ``eu.esa.sar``.
 CATEGORIES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("Python (outside SNAP)", "#fde2c8", (EXTERNAL_CLS_PREFIX,)),
     ("Sentinel-1", "#cfe2ff", ("eu.esa.sar.sentinel1",)),
     ("Orbit", "#dcd5f7", ("eu.esa.sar.orbits",)),
     ("Calibration", "#ffe2ad", ("eu.esa.sar.calibration",)),
@@ -238,6 +240,8 @@ def to_dot(graph: Graph, *, title: str | None = None) -> str:
             attrs = []
             if nodes[source].op == "SnaphuExport" and node.op == "SnaphuImport":
                 attrs += ["style=dashed", 'label=" snaphu (external) "']
+            elif is_external(node.op) or is_external(nodes[source].op):
+                attrs += ["style=dashed", 'label=" BEAM-DIMAP "']
             elif len(node.sources) > 1:
                 attrs.append(f'label=" {index} "')
             suffix = f" [{', '.join(attrs)}]" if attrs else ""

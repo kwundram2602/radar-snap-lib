@@ -14,9 +14,20 @@ from radar_snap_lib.snap_ops.OpsConfig import (
     OpsConfig,
     save_write_nodes,
 )
+from radar_snap_lib.snap_ops.segments import segment_xmls, split_at_external
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 GRAPH_EXAMPLES = sorted(p for p in EXAMPLES.glob("*.yaml") if _is_pipeline_config(p))
+
+
+def _example_xmls(path: Path, registry) -> list[str]:
+    """The graph XML of an example, one per graph for a config split around
+    nodes that run outside SNAP."""
+    config = OpsConfig.load(path, registry=registry)
+    segments = split_at_external(config.parse(), config.output_dir)
+    if segments is None:
+        return [config.to_xml()]
+    return [x for x in segment_xmls(segments, config.registry) if x is not None]
 
 
 def _config(pipeline: dict, registry, **top) -> OpsConfig:
@@ -302,9 +313,10 @@ class TestExamples:
 
     @pytest.mark.parametrize("path", GRAPH_EXAMPLES, ids=lambda p: p.name)
     def test_example_serialises(self, path, registry):
-        root = ET.fromstring(OpsConfig.load(path, registry=registry).to_xml())
-        assert root.tag == "graph"
-        assert root.findall("node")
+        for xml in _example_xmls(path, registry):
+            root = ET.fromstring(xml)
+            assert root.tag == "graph"
+            assert root.findall("node")
 
     def test_interferogram_wires_two_sources(self, registry):
         path = EXAMPLES / "s1_slc_interferogram.yaml"
@@ -326,9 +338,11 @@ class TestSnapAcceptsGeneratedXml:
         graph_io = jpy.get_type("org.esa.snap.core.gpf.graph.GraphIO")
         string_reader = jpy.get_type("java.io.StringReader")
 
-        config = OpsConfig.load(path, registry=registry)
-        graph = graph_io.read(string_reader(config.to_xml()))
-        assert len(list(graph.getNodes())) == len(config.parse())
+        for xml in _example_xmls(path, registry):
+            graph = graph_io.read(string_reader(xml))
+            assert len(list(graph.getNodes())) == len(
+                ET.fromstring(xml).findall("node")
+            )
 
 
 class TestSaveAndOutputDir:
@@ -385,8 +399,11 @@ class TestSaveAndOutputDir:
 
     def test_output_dir_resolves_interpolation(self, registry):
         config = OpsConfig.load(
-            {"vars": {"out": "/interp"}, "output_dir": "${vars.out}",
-             "pipeline": LINEAR},
+            {
+                "vars": {"out": "/interp"},
+                "output_dir": "${vars.out}",
+                "pipeline": LINEAR,
+            },
             registry=registry,
         )
         assert config.output_dir == Path("/interp")

@@ -193,6 +193,68 @@ prints a note to use `run --dump-xml` instead. `run --dump-xml <path>` writes
 both graphs for a split config, as `<stem>.a<suffix>` and `<stem>.b<suffix>`
 (e.g. `graph.a.xml` and `graph.b.xml` for `--dump-xml graph.xml`).
 
+### DeepDespeckle (deep-learning despeckling, outside SNAP)
+
+`DeepDespeckle` despeckles with [deepdespeckling](https://github.com/kwundram2602/deepdespeckling)
+(PyTorch) and is written in a config like any SNAP operator:
+
+```yaml
+output_dir: /data/s1/merlin
+
+pipeline:
+  ...
+  TOPSAR-Deburst: {}
+  DeepDespeckle:
+    method: merlin          # or sar2sar
+  Calibration:
+    outputSigmaBand: true
+  ...
+```
+
+It needs one of two optional extras (torch is large, so neither is installed by
+default):
+
+```bash
+uv sync --extra despeckle          # CPU torch, ~200 MB
+uv sync --extra despeckle-cu128    # CUDA torch for an NVIDIA GPU, several GB
+```
+
+The model weights ship with deepdespeckling. On a CPU, MERLIN takes in the
+order of half an hour to an hour for one polarisation of a full IW subswath.
+
+| `method`  | input                                  | output                                       |
+|-----------|----------------------------------------|----------------------------------------------|
+| `merlin`  | complex SLC: every `i_*`/`q_*` pair    | `Amplitude_*` plus virtual `Intensity_*`, marked detected |
+| `sar2sar` | detected: `Amplitude_*` bands, or intensity bands (despeckled as their square root) | the same bands, despeckled |
+
+Parameters: `model` (MERLIN weights, `Sentinel-TOPS` default, or `spotlight`,
+`stripmap` for TerraSAR-X), `symetrise` (MERLIN, default `true`), `bands`
+(restrict to some bands), `patch_size`/`stride_size` (256/254), and
+`block_size` (4096): the image is read block by block from memory maps,
+so a full scene does not have to fit in memory. `radar-snap describe
+DeepDespeckle` lists them; `validate` checks them like any operator's.
+
+SNAP cannot run Python mid-graph, so `run` splits the pipeline around the node,
+like the snaphu split, but with nothing to set up by hand:
+
+1. graph a writes the node's source to `output_dir/DeepDespeckle__in.dim`
+   (or reuses it if that node has `save:`),
+2. DeepDespeckle writes `output_dir/DeepDespeckle.dim` (named by `save:` if
+   given) -- everything except the despeckled bands, metadata included, is
+   copied over, so SNAP carries on as usual,
+3. graph b reads that product and runs the rest of the pipeline; the
+   hand-over input is deleted.
+
+A config with DeepDespeckle therefore needs `output_dir`. All graphs are known
+before anything runs, so `dump-xml` and `run --dump-xml` write all of them
+(`graph.a.xml`, `graph.b.xml`, ...). MERLIN works on the phase-preserving i/q
+bands, so it has to come before anything that detects (Multilook, Calibration
+to intensity). See [examples/s1_slc_merlin.yaml](examples/s1_slc_merlin.yaml)
+and [examples/s1_grd_sar2sar.yaml](examples/s1_grd_sar2sar.yaml).
+
+`despeckle_dimap(src, dst, method=...)` in `radar_snap_lib.despeckle` does the
+same on a DIMAP product outside a pipeline.
+
 ## Visualising a graph
 
 ```bash
@@ -211,7 +273,8 @@ graph XML, also one saved from SNAP Desktop, with Graphviz:
   in the SVG shows the operator description and every parameter in full;
 - input files and written products are notes at the top and bottom, a
   `.SAFE` product by its folder name; `save:` outputs hang off their node;
-- the SnaphuExport -> SnaphuImport hand-over is a dashed edge.
+- the SnaphuExport -> SnaphuImport hand-over is a dashed edge, as are the
+  BEAM-DIMAP hand-overs around a node that runs in Python (DeepDespeckle).
 
 The suffix picks the format: `.svg`, `.png`, `.pdf` need Graphviz' `dot` on
 `PATH`, `.dot` writes the Graphviz source without it. From Python:

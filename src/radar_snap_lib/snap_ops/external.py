@@ -203,8 +203,8 @@ DEEP_DESPECKLE = ExternalOp(
     ),
     requires="deepdespeckling",
     install_hint=(
-        "DeepDespeckle needs deepdespeckling and torch: uv sync --extra despeckle "
-        "(CPU) or --extra despeckle-cu128 (NVIDIA GPU)"
+        "DeepDespeckle needs deepdespeckling and torch: install radar-snap-lib "
+        "with its 'despeckle' extra (in this repo: uv sync --extra despeckle)"
     ),
     check=_check_deep_despeckle,
     run=_run_deep_despeckle,

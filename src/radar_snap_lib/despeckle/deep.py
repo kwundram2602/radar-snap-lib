@@ -35,8 +35,9 @@ METHODS = ("merlin", "sar2sar")
 MERLIN_MODELS = ("Sentinel-TOPS", "spotlight", "stripmap")
 
 INSTALL_HINT = (
-    "Deep-learning despeckling needs deepdespeckling and torch: "
-    "uv sync --extra despeckle (CPU) or --extra despeckle-cu128 (NVIDIA GPU)"
+    "Deep-learning despeckling needs deepdespeckling and torch: install "
+    "radar-snap-lib with its 'despeckle' extra "
+    "(in this repo: uv sync --extra despeckle)"
 )
 
 

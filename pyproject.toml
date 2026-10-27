@@ -20,14 +20,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]
-# DeepDespeckle pipeline node: deepdespeckling with CPU torch (~200 MB) or, for
-# an NVIDIA GPU, CUDA torch (several GB). The two conflict -- pick one:
-#   uv sync --extra despeckle   |   uv sync --extra despeckle-cu128
+# DeepDespeckle pipeline node. Which torch build (CPU or CUDA) is the installing
+# project's choice -- this extra deliberately pins no index, or it would clash
+# with the torch index of a project that depends on radar-snap-lib.
 despeckle = [
-    "deepdespeckling @ git+https://github.com/kwundram2602/deepdespeckling.git@main",
-    "torch>=2.6",
-]
-despeckle-cu128 = [
     "deepdespeckling @ git+https://github.com/kwundram2602/deepdespeckling.git@main",
     "torch>=2.6",
 ]
@@ -69,13 +65,18 @@ addopts = "-m 'not network'"
 #   2. a `.env` file in the project root (see .env.example)
 esa-snappy-venv = "/home/kjell/projects/py_projects/esa_snappy_env/.venv"
 
+# torch for developing this repo: the `cpu` group by default (~200 MB), or for an
+# NVIDIA GPU `uv sync --no-default-groups --group dev --group cu128 --extra despeckle`.
+# Groups never reach projects that depend on radar-snap-lib, so neither do these
+# index pins.
 [tool.uv]
-conflicts = [[{ extra = "despeckle" }, { extra = "despeckle-cu128" }]]
+default-groups = ["dev", "cpu"]
+conflicts = [[{ group = "cpu" }, { group = "cu128" }]]
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cpu", extra = "despeckle" },
-    { index = "pytorch-cu128", extra = "despeckle-cu128" },
+    { index = "pytorch-cpu", group = "cpu" },
+    { index = "pytorch-cu128", group = "cu128" },
 ]
 
 [[tool.uv.index]]
@@ -110,3 +111,5 @@ dev = [
     "ruff>=0.15.12",
     "ty>=0.0.34",
 ]
+cpu = ["torch>=2.6"]
+cu128 = ["torch>=2.6"]

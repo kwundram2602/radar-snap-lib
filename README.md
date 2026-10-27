@@ -211,12 +211,15 @@ pipeline:
   ...
 ```
 
-It needs one of two optional extras (torch is large, so neither is installed by
-default):
+It needs the optional `despeckle` extra (deepdespeckling and torch). In another
+project, `uv add "radar-snap-lib[despeckle]"`; which torch build that brings
+(CPU or CUDA) is up to that project's own torch index setup -- the extra pins
+none, so it never clashes with it. In this repo:
 
 ```bash
-uv sync --extra despeckle          # CPU torch, ~200 MB
-uv sync --extra despeckle-cu128    # CUDA torch for an NVIDIA GPU, several GB
+uv sync --extra despeckle          # CPU torch (the default `cpu` group), ~200 MB
+uv sync --extra despeckle --no-default-groups --group dev --group cu128
+                                   # CUDA torch for an NVIDIA GPU, several GB
 ```
 
 The model weights ship with deepdespeckling. On a CPU, MERLIN takes in the

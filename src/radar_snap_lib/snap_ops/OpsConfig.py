@@ -35,8 +35,9 @@ parameter named ``op`` or ``sources``.
 
 Validation runs entirely against the committed operator registry, so a config
 can be checked without SNAP installed. Nodes that run in Python instead of SNAP
-(``DeepDespeckle``, see :mod:`radar_snap_lib.snap_ops.external`) are validated
-the same way.
+(``DeepDespeckle``, see :mod:`radar_snap_lib.snap_ops.external`) and the
+scikit-image filters at the end of a pipeline (``Canny``, ``Erosion``, ..., see
+:mod:`radar_snap_lib.snap_ops.filter_ops`) are validated the same way.
 """
 
 from __future__ import annotations
@@ -51,6 +52,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from radar_snap_lib._omegaconf import _plain, _register_resolvers, _suggest
 from radar_snap_lib.snap_ops.external import EXTERNAL_OPS, with_external
+from radar_snap_lib.snap_ops.filter_ops import FILTER_OPS, with_filters
 from radar_snap_lib.snap_ops.graph import Graph
 from radar_snap_lib.snap_ops.registry import OperatorSpec, Registry, load_registry
 
@@ -157,10 +159,12 @@ def save_write_nodes(nodes: list[ParsedNode], output_dir: Path) -> list[ParsedNo
     the parsed node list: a split config validates that every node is reachable
     from one side of the ``SnaphuExport``/``SnaphuImport`` pair, and these
     ``Write`` nodes are reachable from neither.
+
+    Filter nodes are skipped: they save themselves, as GeoTIFF.
     """
     extra: list[ParsedNode] = []
     for node in nodes:
-        if node.save is None or node.save is False:
+        if node.save is None or node.save is False or node.op in FILTER_OPS:
             continue
         name = node.id if node.save is True else str(node.save)
         extra.append(
@@ -201,8 +205,8 @@ class OpsConfig:
         source: str | None = None,
     ) -> None:
         self.config = config
-        self.registry = with_external(
-            registry if registry is not None else load_registry()
+        self.registry = with_filters(
+            with_external(registry if registry is not None else load_registry())
         )
         self.source = source
 
@@ -358,6 +362,8 @@ class OpsConfig:
             errors.extend(self._check_params(node, spec))
             if node.op in EXTERNAL_OPS:
                 errors.extend(EXTERNAL_OPS[node.op].check(node))
+            if node.op in FILTER_OPS:
+                errors.extend(FILTER_OPS[node.op].check(node))
 
         external = [n.id for n in nodes if n.op in EXTERNAL_OPS]
         if external and self.output_dir is None:
@@ -365,12 +371,18 @@ class OpsConfig:
                 f"Node(s) {external!r} run outside SNAP and need the config's "
                 f"{OUTPUT_DIR_KEY!r} for the files they hand over"
             )
+        filters = [n.id for n in nodes if n.op in FILTER_OPS]
+        if filters and self.output_dir is None:
+            errors.append(
+                f"Filter node(s) {filters!r} write their results to the config's "
+                f"{OUTPUT_DIR_KEY!r}, which is not set"
+            )
 
         errors.extend(self._check_acyclic(nodes))
 
         # a `save:` node gets its own Write at run time (see save_write_nodes),
-        # an external node writes its own output
-        has_output = saved or external
+        # an external node writes its own output, a filter node its GeoTIFF
+        has_output = saved or external or filters
         if not any(node.op == "Write" for node in nodes) and not has_output:
             warnings.warn(
                 "Pipeline has no 'Write' node and no 'save:'; GraphProcessor will "
@@ -473,7 +485,8 @@ class OpsConfig:
         """Validate the config and build the corresponding :class:`Graph`.
 
         With ``include_saves`` (and an ``output_dir``) the graph has the Write
-        nodes ``run`` adds for ``save:``, so it is the graph that runs.
+        nodes ``run`` adds for ``save:``, so it is the graph that runs, plus a
+        stand-in Write per GeoTIFF the filter nodes write.
         """
         nodes = self.parse()
         errors = self.validate(nodes)
@@ -482,7 +495,15 @@ class OpsConfig:
 
         output_dir = self.output_dir
         if include_saves and output_dir is not None:
-            nodes = [*nodes, *save_write_nodes(nodes, output_dir)]
+            from radar_snap_lib.snap_ops.filter_tail import (  # noqa: PLC0415
+                filter_write_nodes,
+            )
+
+            nodes = [
+                *nodes,
+                *save_write_nodes(nodes, output_dir),
+                *filter_write_nodes(nodes, output_dir),
+            ]
         return build_graph(dependency_order(nodes), self.registry, graph_id=graph_id)
 
     @staticmethod
@@ -497,10 +518,14 @@ class OpsConfig:
     def to_xml(self, path: Path | str | None = None) -> str:
         """Validate and serialise straight to GPF graph XML.
 
-        Not for a config with external nodes: that is several graphs, see
-        :func:`radar_snap_lib.snap_ops.segments.split_at_external`.
+        Not for a config with external or filter nodes: that is several graphs
+        and Python steps, see
+        :func:`radar_snap_lib.snap_ops.segments.split_at_external` and
+        :func:`radar_snap_lib.snap_ops.filter_tail.split_filter_tail`.
         """
-        external = [n.id for n in self.parse() if n.op in EXTERNAL_OPS]
+        external = [
+            n.id for n in self.parse() if n.op in EXTERNAL_OPS or n.op in FILTER_OPS
+        ]
         if external:
             raise GraphConfigError(
                 [

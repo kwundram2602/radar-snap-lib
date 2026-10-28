@@ -258,6 +258,82 @@ and [examples/s1_grd_sar2sar.yaml](examples/s1_grd_sar2sar.yaml).
 `despeckle_dimap(src, dst, method=...)` in `radar_snap_lib.despeckle` does the
 same on a DIMAP product outside a pipeline.
 
+### Filters (scikit-image, after SNAP)
+
+Edge detection and morphology on the GeoTIFF a pipeline produces, written as
+nodes like any operator. Filters come at the end: they may read each other, but
+no SNAP node may read a filter.
+
+```yaml
+output_dir: /data/s1/edges
+
+pipeline:
+  ...
+  Terrain-Correction:
+    pixelSpacingInMeter: 10.0
+  Write:
+    file: /data/s1/gamma0.tif
+    formatName: GeoTIFF
+  Canny:
+    sigma: 2.0
+    bands: [1]
+  Closing:
+    footprint: disk
+    radius: 2                 # -> /data/s1/edges/Closing.tif
+```
+
+A filter finds its GeoTIFF in one of three ways:
+
+- after a `Write` with `formatName: GeoTIFF` (or `GeoTIFF-BigTIFF`): the file it
+  writes; any other format is a config error,
+- after a plain `Read` of a `.tif`: that file -- a config of only such a
+  `Read` and filters runs without SNAP, so it needs no JVM,
+- after any other SNAP node: `run` writes that node as
+  `output_dir/<node>.tif` first.
+
+```yaml
+output_dir: /data/s1/edges
+pipeline:
+  Read: {file: /data/s1/gamma0.tif}
+  Canny: {sigma: 2.0}
+```
+
+Every filter no other filter reads is written to `output_dir/<id>.tif`, and so
+is any filter with `save:` (`save: name` -> `name.tif`). The outputs keep the
+input's CRS, transform and band descriptions.
+
+| op         | parameters                                                          | output                       |
+|------------|---------------------------------------------------------------------|------------------------------|
+| `Canny`    | `sigma` (1.0), `low_threshold`, `high_threshold`, `use_quantiles`   | `uint8` 0/1, nodata 255      |
+| `Erosion`  | `footprint` (`disk`, `square`, `diamond`), `radius` (1)             | input dtype and nodata       |
+| `Dilation` | as `Erosion`                                                        | input dtype and nodata       |
+| `Opening`  | as `Erosion`                                                        | input dtype and nodata       |
+| `Closing`  | as `Erosion`                                                        | input dtype and nodata       |
+
+Every op also takes `bands` (1-based, default all) when it reads the GeoTIFF.
+Nodata and non-finite pixels never influence valid ones. Morphology on a
+Canny output is binary morphology. Each band is held in memory whole, once per
+filter whose result is still needed. `radar-snap describe Canny` lists the
+parameters; `validate` checks them.
+
+From Python, on any GeoTIFF:
+
+```python
+from radar_snap_lib.filters import FilterStep, run_filters
+
+run_filters(
+    "gamma0.tif",
+    [
+        FilterStep("edges", "Canny", params={"sigma": 2.0}, bands=[1]),
+        FilterStep("closed", "Closing", source="edges", params={"radius": 2}),
+    ],
+    outputs={"closed": "edges_closed.tif"},
+)
+```
+
+`run_graph` returns a `FilterRunResult` for a config with filters: the SNAP
+part's result (or `None`) and the GeoTIFFs written.
+
 ## Visualising a graph
 
 ```bash
@@ -277,7 +353,8 @@ graph XML, also one saved from SNAP Desktop, with Graphviz:
 - input files and written products are notes at the top and bottom, a
   `.SAFE` product by its folder name; `save:` outputs hang off their node;
 - the SnaphuExport -> SnaphuImport hand-over is a dashed edge, as are the
-  BEAM-DIMAP hand-overs around a node that runs in Python (DeepDespeckle).
+  BEAM-DIMAP hand-overs around a node that runs in Python (DeepDespeckle),
+  and the GeoTIFF hand-over into the filters, whose output files are notes too.
 
 The suffix picks the format: `.svg`, `.png`, `.pdf` need Graphviz' `dot` on
 `PATH`, `.dot` writes the Graphviz source without it. From Python:
@@ -292,15 +369,16 @@ The same node model, built in code instead of YAML:
 from radar_snap_lib.snap_ops import Graph
 
 g = Graph()
-src   = g.read("S1A_IW_SLC.zip")
+src = g.read("S1A_IW_SLC.zip")
 orbit = g.apply_orbit_file(src)
 split = g.topsar_split(orbit, subswath="IW2", selectedPolarisations="VV")
-tc    = g.terrain_correction(split, demName="Copernicus 30m Global DEM",
-                             pixelSpacingInMeter=10.0)
+tc = g.terrain_correction(
+    split, demName="Copernicus 30m Global DEM", pixelSpacingInMeter=10.0
+)
 g.write(tc, file="out.tif", formatName="GeoTIFF")
 
-g.to_xml("graph.xml")   # inspect
-g.run()                 # execute
+g.to_xml("graph.xml")  # inspect
+g.run()  # execute
 ```
 
 Methods build nodes; nothing runs until `run()`. Both front ends produce

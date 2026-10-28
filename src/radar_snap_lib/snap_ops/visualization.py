@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from radar_snap_lib.snap_ops.external import EXTERNAL_CLS_PREFIX, is_external
+from radar_snap_lib.snap_ops.filter_ops import FILTER_CLS_PREFIX, is_filter
 from radar_snap_lib.snap_ops.graph import Graph
 from radar_snap_lib.snap_ops.nodes import Node
 from radar_snap_lib.snap_ops.OpsConfig import OpsConfig
@@ -47,6 +48,8 @@ SAVE_SUFFIX = "__save"
 #: (category, header colour, Java package prefixes); the first match wins, so
 #: the specific SAR packages come before the generic ``eu.esa.sar``.
 CATEGORIES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    # before the Python category, whose prefix also matches the filters
+    ("Filter (scikit-image)", "#f7efb2", (FILTER_CLS_PREFIX,)),
     ("Python (outside SNAP)", "#fde2c8", (EXTERNAL_CLS_PREFIX,)),
     ("Sentinel-1", "#cfe2ff", ("eu.esa.sar.sentinel1",)),
     ("Orbit", "#dcd5f7", ("eu.esa.sar.orbits",)),
@@ -240,6 +243,8 @@ def to_dot(graph: Graph, *, title: str | None = None) -> str:
             attrs = []
             if nodes[source].op == "SnaphuExport" and node.op == "SnaphuImport":
                 attrs += ["style=dashed", 'label=" snaphu (external) "']
+            elif is_filter(node.op) and not is_filter(nodes[source].op):
+                attrs += ["style=dashed", 'label=" GeoTIFF "']
             elif is_external(node.op) or is_external(nodes[source].op):
                 attrs += ["style=dashed", 'label=" BEAM-DIMAP "']
             elif len(node.sources) > 1:

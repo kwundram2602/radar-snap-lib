@@ -20,6 +20,11 @@ The same goes for a config with nodes that run in Python (``DeepDespeckle``):
 ``run_graph`` splits it around them (see ``snap_ops.segments``) and runs the
 SNAP graphs and the Python steps in turn, handing over BEAM-DIMAP files in
 the config's ``output_dir``.
+
+Filter nodes (``Canny``, ``Erosion``, ...) come last: ``run_graph`` cuts them
+off (see ``snap_ops.filter_tail``), runs everything before them as above, then
+filters the GeoTIFF SNAP wrote. A config of only a GeoTIFF ``Read`` and filters
+never starts SNAP.
 """
 
 from __future__ import annotations
@@ -34,6 +39,11 @@ from omegaconf import DictConfig
 
 from radar_snap_lib.despeckle.dimap import remove_product
 from radar_snap_lib.snap_ops import snaphu
+from radar_snap_lib.snap_ops.filter_tail import (
+    FilterTail,
+    check_filter_requirements,
+    split_filter_tail,
+)
 from radar_snap_lib.snap_ops.OpsConfig import (
     GraphConfigError,
     OpsConfig,
@@ -51,7 +61,13 @@ from radar_snap_lib.snap_ops.segments import (
     split_at_external,
 )
 
-__all__ = ["SegmentedRunResult", "SnaphuRunResult", "execute_xml", "run_graph"]
+__all__ = [
+    "FilterRunResult",
+    "SegmentedRunResult",
+    "SnaphuRunResult",
+    "execute_xml",
+    "run_graph",
+]
 
 
 def _graph_classes() -> tuple[Any, Any, Any, Any, Any, Any]:
@@ -119,6 +135,20 @@ class SegmentedRunResult:
     xmls: list[str]
     #: The external steps that ran, in order, with the files they read and wrote.
     steps: list[ExternalStep]
+
+
+@dataclass
+class FilterRunResult:
+    """Result of a run that ends in filter nodes.
+
+    ``run_graph`` returns this instead of what the SNAP part alone returns
+    whenever the config has a filter node.
+    """
+
+    #: What the SNAP part returned; ``None`` when SNAP had nothing to do.
+    snap: str | SnaphuRunResult | SegmentedRunResult | None
+    #: The GeoTIFFs the filters wrote.
+    outputs: list[Path]
 
 
 def _lettered(path: Path, letter: str) -> Path:
@@ -261,6 +291,15 @@ def _run_segments(
     )
 
 
+def _run_filters(tail: FilterTail) -> list[Path]:
+    from radar_snap_lib.filters import run_filters  # noqa: PLC0415
+
+    written: list[Path] = []
+    for chain in tail.chains:
+        written += run_filters(chain.input, chain.steps, chain.outputs)
+    return written
+
+
 def run_graph(
     config: str | Path | DictConfig | dict[str, Any],
     *,
@@ -269,7 +308,7 @@ def run_graph(
     snaphu_bin: str = "snaphu",
     quiet: bool = False,
     vars: Mapping[str, Any] | None = None,
-) -> str | SnaphuRunResult | SegmentedRunResult:
+) -> str | SnaphuRunResult | SegmentedRunResult | FilterRunResult:
     """Validate a config, then execute it.
 
     Args:
@@ -291,7 +330,8 @@ def run_graph(
         The graph XML that was executed, or -- for a config with a
         ``SnaphuExport``/``SnaphuImport`` pair -- a :class:`SnaphuRunResult`
         with both graphs' XML and the ``snaphu`` command that ran, or -- for a
-        config with an external node -- a :class:`SegmentedRunResult`.
+        config with an external node -- a :class:`SegmentedRunResult`; for a
+        config with filter nodes that wrapped in a :class:`FilterRunResult`.
 
     Raises:
         GraphConfigError: If the config does not describe a valid graph.
@@ -300,6 +340,7 @@ def run_graph(
             ``snaphu`` subprocess itself fails, or if an external node's
             Python package is not installed (also checked before any graph
             runs).
+        ValueError: If a filter node's ``bands`` are not in its GeoTIFF.
     """
     ops_config = OpsConfig.load(config, registry=registry, vars=vars)
     nodes = ops_config.parse()
@@ -308,13 +349,51 @@ def run_graph(
         raise GraphConfigError(errors, ops_config.source)
 
     output_dir = ops_config.output_dir
+    nodes, tail = split_filter_tail(nodes, output_dir)
+    if tail is None:
+        return _run_snap(
+            nodes,
+            registry=ops_config.registry,
+            output_dir=output_dir,
+            dump_xml=dump_xml,
+            snaphu_bin=snaphu_bin,
+            quiet=quiet,
+        )
+
+    # before SNAP runs, like the other checks
+    check_filter_requirements()
+    snap_result = (
+        _run_snap(
+            nodes,
+            registry=ops_config.registry,
+            output_dir=output_dir,
+            dump_xml=dump_xml,
+            snaphu_bin=snaphu_bin,
+            quiet=quiet,
+        )
+        if nodes
+        else None
+    )
+    return FilterRunResult(snap=snap_result, outputs=_run_filters(tail))
+
+
+def _run_snap(
+    nodes: list[ParsedNode],
+    *,
+    registry: Registry,
+    output_dir: Path | None,
+    dump_xml: Path | str | None,
+    snaphu_bin: str,
+    quiet: bool,
+) -> str | SnaphuRunResult | SegmentedRunResult:
+    """Run the nodes SNAP runs: one graph, or split as the module doc says."""
     saves = save_write_nodes(nodes, output_dir) if output_dir is not None else []
 
     segments = split_at_external(nodes, output_dir)
     if segments is not None:
         return _run_segments(
             segments,
-            registry=ops_config.registry,
+            registry=registry,
             dump_xml=dump_xml,
             output_dir=output_dir,
             quiet=quiet,
@@ -324,7 +403,7 @@ def run_graph(
     if split is not None:
         return _run_split(
             split,
-            registry=ops_config.registry,
+            registry=registry,
             dump_xml=dump_xml,
             output_dir=output_dir,
             saves=saves,
@@ -332,9 +411,7 @@ def run_graph(
             quiet=quiet,
         )
 
-    xml = build_graph(dependency_order([*nodes, *saves]), ops_config.registry).to_xml(
-        dump_xml
-    )
+    xml = build_graph(dependency_order([*nodes, *saves]), registry).to_xml(dump_xml)
     _dump(xml, output_dir, "graph.xml")
     execute_xml(xml, quiet=quiet)
     return xml

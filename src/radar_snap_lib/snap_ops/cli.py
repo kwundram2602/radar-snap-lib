@@ -43,8 +43,9 @@ def _cmd_ops(args: argparse.Namespace) -> int:
 
 def _cmd_describe(args: argparse.Namespace) -> int:
     from radar_snap_lib.snap_ops.external import with_external  # noqa: PLC0415
+    from radar_snap_lib.snap_ops.filter_ops import with_filters  # noqa: PLC0415
 
-    registry = with_external(load_registry())
+    registry = with_filters(with_external(load_registry()))
     spec = registry.get(args.operator)
     if spec is None:
         print(f"Unknown operator: {args.operator}", file=sys.stderr)
@@ -153,6 +154,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         return 2
 
     if _is_pipeline_config(loaded):
+        from radar_snap_lib.snap_ops.filter_tail import split_filter_tail
         from radar_snap_lib.snap_ops.OpsConfig import GraphConfigError, OpsConfig
         from radar_snap_lib.snap_ops.segments import split_at_external
         from radar_snap_lib.snap_ops.snaphu import split_at_snaphu
@@ -163,6 +165,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             nodes = config.parse()
             errors = config.validate(nodes)
             if not errors:
+                nodes, _ = split_filter_tail(nodes, config.output_dir)
                 segments = split_at_external(nodes, config.output_dir)
                 split = split_at_snaphu(nodes)
         except GraphConfigError as exc:
@@ -252,6 +255,7 @@ def _cmd_download(args: argparse.Namespace) -> int:
 
 
 def _cmd_dump_xml(args: argparse.Namespace) -> int:
+    from radar_snap_lib.snap_ops.filter_tail import split_filter_tail
     from radar_snap_lib.snap_ops.OpsConfig import (
         GraphConfigError,
         OpsConfig,
@@ -276,6 +280,12 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
             raise GraphConfigError(errors, config.source)
         # Mirror what `run` executes: it injects a Write per `save:` node.
         output_dir = config.output_dir
+        nodes, tail = split_filter_tail(nodes, output_dir)
+        if tail is not None:
+            print(_FILTER_NOTE, file=sys.stderr)
+            if not nodes:
+                print("This config has no SNAP graph at all.", file=sys.stderr)
+                return 0
         saves = save_write_nodes(nodes, output_dir) if output_dir is not None else []
 
         segments = split_at_external(nodes, output_dir)
@@ -313,6 +323,12 @@ def _cmd_dump_xml(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
     return 0
+
+
+_FILTER_NOTE = (
+    "The filter nodes at the end of this config run in Python on the GeoTIFF "
+    "SNAP writes; they are not part of any graph."
+)
 
 
 def _dump_segments(xmls: list[str | None], output: Path | None) -> int:
@@ -396,8 +412,10 @@ def _report_written(config_path: Path) -> None:
         return
     if output_dir is None:
         return
-    written = sorted(p for p in output_dir.glob("graph*.xml")) + sorted(
-        output_dir.glob("*.dim")
+    written = (
+        sorted(output_dir.glob("graph*.xml"))
+        + sorted(output_dir.glob("*.dim"))
+        + sorted(output_dir.glob("*.tif"))
     )
     for path in written:
         print(f"  wrote {path}")
@@ -479,7 +497,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     visualize.set_defaults(func=_cmd_visualize)
 
-    run = sub.add_parser("run", help="execute a config through SNAP")
+    run = sub.add_parser(
+        "run", help="execute a config through SNAP (and its filters in Python)"
+    )
     run.add_argument("config", type=Path)
     run.add_argument("--dump-xml", type=Path, help="also write the graph XML here")
     run.add_argument(

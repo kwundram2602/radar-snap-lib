@@ -16,6 +16,7 @@ dependencies = [
     "shapely>=2.0",
     "scipy>=1.13",
     "geopandas>=1.0",
+    "scikit-image>=0.24",
 ]
 
 [project.optional-dependencies]

@@ -2,7 +2,11 @@
 
 Each band is read whole, every filter step runs on it in memory, and each step
 named in ``outputs`` writes its result as one band of its own GeoTIFF, with the
-input's georeferencing. Memory therefore scales with one band times the steps
+input's georeferencing. An output band is named after its input band and the
+filters applied, e.g. ``Sigma0_VV_db_Canny_Closing``; the input band's name is
+its GDAL description or, for a GeoTIFF SNAP wrote, the name in SNAP's embedded
+header (see :mod:`radar_snap_lib.snap_tiff`), which also supplies a no-data
+value GDAL does not see. Memory therefore scales with one band times the steps
 still needed at a time, not with the whole raster.
 
 scikit-image and rasterio are imported when filters run, so that
@@ -68,6 +72,7 @@ def run_filters(
     import rasterio  # noqa: PLC0415
 
     from radar_snap_lib.filters.ops import OPS  # noqa: PLC0415
+    from radar_snap_lib.snap_tiff import snap_bands  # noqa: PLC0415
 
     by_id = {step.id: step for step in steps}
     unknown = [step.op for step in steps if step.op not in OPS]
@@ -77,8 +82,10 @@ def run_filters(
         )
 
     root: dict[str, str] = {}
+    chain: dict[str, list[str]] = {}
     for step in steps:
         root[step.id] = step.id if step.source is None else root[step.source]
+        chain[step.id] = [*chain.get(step.source or "", []), step.op]
     consumers = {step.id: 0 for step in steps}
     for step in steps:
         if step.source is not None:
@@ -98,13 +105,30 @@ def run_filters(
                     f"(bands 1..{dataset.count})"
                 )
 
+        header = snap_bands(src, dataset.count)
+        names, units, nodatas = [], [], []
+        for index in range(dataset.count):
+            snap = header[index] if header else None
+            names.append(
+                dataset.descriptions[index]
+                or (snap.name if snap else None)
+                or f"band_{index + 1}"
+            )
+            units.append(dataset.units[index] or (snap.unit if snap else None) or "")
+            nodata = dataset.nodatavals[index]
+            nodatas.append(snap.no_data if nodata is None and snap else nodata)
+
         written: dict[str, Path] = {}
         targets: dict[str, Any] = {}
+        labels: dict[str, tuple[str, bool]] = {}
         try:
             for step_id, file in outputs.items():
                 bands = bands_of[root[step_id]]
                 dtype, nodata = _out_kind(
-                    by_id[step_id], by_id, dataset.dtypes[bands[0] - 1], dataset.nodata
+                    by_id[step_id],
+                    by_id,
+                    dataset.dtypes[bands[0] - 1],
+                    nodatas[bands[0] - 1],
                 )
                 profile = {
                     **dataset.profile,
@@ -118,6 +142,8 @@ def run_filters(
                 path.parent.mkdir(parents=True, exist_ok=True)
                 targets[step_id] = rasterio.open(path, "w", **profile)
                 written[step_id] = path
+                # Canny turns any unit into unitless 0/1 edges
+                labels[step_id] = ("_".join(chain[step_id]), "Canny" in chain[step_id])
 
             for band in sorted({b for bands in bands_of.values() for b in bands}):
                 data = dataset.read(band)
@@ -126,8 +152,9 @@ def run_filters(
                     if data.dtype.kind == "f"
                     else np.ones(data.shape, bool)
                 )
-                if dataset.nodata is not None and not np.isnan(dataset.nodata):
-                    valid &= data != dataset.nodata
+                nodata = nodatas[band - 1]
+                if nodata is not None and not np.isnan(nodata):
+                    valid &= data != nodata
                 _run_band(
                     band,
                     data,
@@ -137,7 +164,13 @@ def run_filters(
                     bands_of,
                     consumers,
                     targets,
-                    dataset.descriptions[band - 1],
+                    {
+                        step_id: (
+                            f"{names[band - 1]}_{suffix}",
+                            "" if unitless else units[band - 1],
+                        )
+                        for step_id, (suffix, unitless) in labels.items()
+                    },
                 )
         finally:
             for target in targets.values():
@@ -154,8 +187,10 @@ def _run_band(
     bands_of: Mapping[str, list[int]],
     consumers: Mapping[str, int],
     targets: Mapping[str, Any],
-    description: str | None,
+    labels: Mapping[str, tuple[str, str]],
 ) -> None:
+    """Run every step on one band; ``labels`` maps an output step to the
+    (description, unit) of the band it writes."""
     from radar_snap_lib.filters.ops import OPS  # noqa: PLC0415
 
     results: dict[str, np.ndarray] = {}
@@ -180,7 +215,9 @@ def _run_band(
                 out = np.where(valid, out, target.nodata).astype(target.dtypes[0])
             index = bands.index(band) + 1
             target.write(out, index)
-            if description:
-                target.set_band_description(index, description)
+            description, unit = labels[step.id]
+            target.set_band_description(index, description)
+            if unit:
+                target.set_band_unit(index, unit)
         if left[step.id]:
             results[step.id] = result

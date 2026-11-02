@@ -1,0 +1,73 @@
+# @format
+
+# Sentinel-1 GRD -> terrain-corrected gamma0 in dB -> Canny edges.
+#
+#   radar-snap validate examples/s1_grd_canny.yaml
+#   radar-snap run examples/s1_grd_canny.yaml
+#
+# SNAP writes the GeoTIFF, then Canny runs on it in Python (scikit-image) and
+# writes ${output_dir}/Canny.tif: uint8, 1 = edge, 0 = no edge, 255 = nodata.
+# Its bands are named after the input bands, e.g. Gamma0_VV_db_Canny.
+#
+# For a gamma0 GeoTIFF you already have, the pipeline shrinks to:
+#
+#   pipeline:
+#     Read: {file: /data/s1/out/gamma0_tc.tif}
+#     Canny: {sigma: 2.0, use_quantiles: true, low_threshold: 0.8, high_threshold: 0.95}
+#
+# which runs without SNAP.
+
+vars:
+  scene: /data/s1/S1A_IW_GRDH_1SDV_20240101T054321_20240101T054346_051234_062ABC_1234.zip
+  output: /data/s1/out/gamma0_tc.tif
+
+output_dir: /data/s1/out/edges
+
+pipeline:
+  Read:
+    file: ${vars.scene}
+
+  Apply-Orbit-File:
+    orbitType: Sentinel Precise (Auto Download)
+    continueOnFail: true
+
+  Remove-GRD-Border-Noise:
+    borderLimit: 500
+    trimThreshold: 0.5
+
+  ThermalNoiseRemoval:
+    removeThermalNoise: true
+
+  Calibration:
+    outputBetaBand: true
+    outputSigmaBand: false
+
+  Terrain-Flattening:
+    demName: Copernicus 30m Global DEM
+
+  Speckle-Filter:
+    filter: Refined Lee
+
+  Terrain-Correction:
+    demName: Copernicus 30m Global DEM
+    imgResamplingMethod: BILINEAR_INTERPOLATION
+    pixelSpacingInMeter: 10.0
+    mapProjection: WGS84(DD)
+    saveSelectedSourceBand: true
+
+  LinearToFromdB: {}
+
+  Write:
+    file: ${vars.output}
+    formatName: GeoTIFF
+
+  Canny:
+    # Gaussian smoothing before the gradient; higher = fewer, smoother edges,
+    # which speckle needs even after the Refined Lee above
+    sigma: 2.0
+    # thresholds as quantiles of the gradient magnitude: independent of the
+    # dB value range, so they carry over between scenes
+    use_quantiles: true
+    low_threshold: 0.8
+    high_threshold: 0.95
+    bands: [1]

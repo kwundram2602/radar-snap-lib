@@ -141,6 +141,59 @@ class TestRunFilters:
         with rasterio.open(tmp_path / "c.tif") as out:
             assert np.all(out.read(1)[0] == CANNY_NODATA)
 
+    def test_outputs_are_named_after_the_band_and_the_filters(self, tmp_path: Path):
+        src = _write_tif(tmp_path / "in.tif", np.stack([_square(), _square()]))
+        with rasterio.open(src, "r+") as dataset:
+            dataset.set_band_description(1, "Sigma0_VH_db")
+            dataset.set_band_description(2, "Sigma0_VV_db")
+            dataset.set_band_unit(2, "dB")
+        steps = [
+            FilterStep("d", "Dilation", bands=[2]),
+            FilterStep("e", "Canny"),
+            FilterStep("c", "Closing", source="e"),
+        ]
+        outputs = {s.id: tmp_path / f"{s.id}.tif" for s in steps}
+        run_filters(src, steps, outputs)
+        with rasterio.open(outputs["d"]) as out:
+            assert out.descriptions == ("Sigma0_VV_db_Dilation",)
+            assert out.units == ("dB",)
+        with rasterio.open(outputs["e"]) as out:
+            assert out.descriptions == ("Sigma0_VH_db_Canny", "Sigma0_VV_db_Canny")
+            assert out.units == (None, None)
+        with rasterio.open(outputs["c"]) as out:
+            assert out.descriptions == (
+                "Sigma0_VH_db_Canny_Closing",
+                "Sigma0_VV_db_Canny_Closing",
+            )
+
+    def test_an_unnamed_band_gets_its_number(self, tmp_path: Path):
+        src = _write_tif(tmp_path / "in.tif", _square())
+        run_filters(src, [FilterStep("c", "Canny")], {"c": tmp_path / "c.tif"})
+        with rasterio.open(tmp_path / "c.tif") as out:
+            assert out.descriptions == ("band_1_Canny",)
+
+    @pytest.mark.filterwarnings("ignore::rasterio.errors.NotGeoreferencedWarning")
+    def test_names_and_nodata_from_a_snap_header(self, tmp_path: Path, snap_tif):
+        image = np.zeros((32, 32), np.float32)
+        image[4:28, 4:28] = 5.0  # scene inside a 0-valued border, as SNAP writes
+        src = snap_tif(tmp_path / "in.tif", image, [("Gamma0_VV_db", "dB", 0.0)])
+        run_filters(src, [FilterStep("c", "Canny")], {"c": tmp_path / "c.tif"})
+        with rasterio.open(tmp_path / "c.tif") as out:
+            assert out.descriptions == ("Gamma0_VV_db_Canny",)
+            edges = out.read(1)
+        # the border is nodata, so the scene's outline is not an edge
+        assert np.all(edges[:4] == CANNY_NODATA)
+        assert set(np.unique(edges[4:28, 4:28])) == {0}
+
+    @pytest.mark.filterwarnings("ignore::rasterio.errors.NotGeoreferencedWarning")
+    def test_gdal_description_wins_over_the_snap_header(self, tmp_path: Path, snap_tif):
+        src = snap_tif(tmp_path / "in.tif", _square(), [("Sigma0_VV", None, None)])
+        with rasterio.open(src, "r+") as dataset:
+            dataset.set_band_description(1, "mine")
+        run_filters(src, [FilterStep("c", "Canny")], {"c": tmp_path / "c.tif"})
+        with rasterio.open(tmp_path / "c.tif") as out:
+            assert out.descriptions == ("mine_Canny",)
+
     def test_a_band_out_of_range(self, tmp_path: Path):
         src = _write_tif(tmp_path / "in.tif", _square())
         with pytest.raises(ValueError, match=r"band\(s\) \[3\]"):
@@ -318,15 +371,16 @@ class TestRun:
         assert result.outputs == [tmp_path / "out" / "Canny.tif"]
         assert result.outputs[0].is_file()
 
+    @pytest.mark.filterwarnings("ignore::rasterio.errors.NotGeoreferencedWarning")
     def test_snap_runs_first_then_the_filters(
-        self, registry, tmp_path: Path, monkeypatch
+        self, registry, tmp_path: Path, monkeypatch, snap_tif
     ):
         tif = tmp_path / "gamma0.tif"
         xmls: list[str] = []
 
         def fake_snap(xml: str, **_kwargs) -> None:
             xmls.append(xml)
-            _write_tif(tif, _square())
+            snap_tif(tif, _square(), [("Gamma0_VV_db", "dB", None)])
 
         monkeypatch.setattr(runner, "execute_xml", fake_snap)
         pipeline = {
@@ -340,6 +394,12 @@ class TestRun:
         assert "Canny" not in xmls[0]
         assert result.outputs == [tmp_path / "out" / "Closing.tif"]
         assert (tmp_path / "out" / "graph.xml").is_file()
+        # SNAP's own GeoTIFF is labeled, and the filter output named after it
+        with rasterio.open(tif) as written:
+            assert written.descriptions == ("Gamma0_VV_db",)
+            assert written.units == ("dB",)
+        with rasterio.open(result.outputs[0]) as out:
+            assert out.descriptions == ("Gamma0_VV_db_Canny_Closing",)
 
 
 class TestCli:

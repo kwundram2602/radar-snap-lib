@@ -42,6 +42,7 @@ __all__ = [
     "check_filter_requirements",
     "filter_write_nodes",
     "split_filter_tail",
+    "tif_path",
 ]
 
 #: ``Write`` formats a filter can read.
@@ -75,7 +76,7 @@ class FilterTail:
         return [path for chain in self.chains for path in chain.outputs.values()]
 
 
-def _tif(file: object) -> Path:
+def tif_path(file: object) -> Path:
     """The file a GeoTIFF ``Write`` produces: SNAP adds ``.tif`` if missing."""
     path = Path(str(file))
     if path.suffix.lower() in _TIFF_SUFFIXES:
@@ -174,7 +175,7 @@ def split_filter_tail(
                     f"{fmt!r} -- set formatName: GeoTIFF (or GeoTIFF-BigTIFF)"
                 )
                 continue
-            inputs[entry] = _tif(file)
+            inputs[entry] = tif_path(file)
         elif (
             node.op == "Read"
             and not node.sources

@@ -25,6 +25,10 @@ Filter nodes (``Canny``, ``Erosion``, ...) come last: ``run_graph`` cuts them
 off (see ``snap_ops.filter_tail``), runs everything before them as above, then
 filters the GeoTIFF SNAP wrote. A config of only a GeoTIFF ``Read`` and filters
 never starts SNAP.
+
+Every GeoTIFF a ``Write`` produced gets its band names (``Sigma0_VV_db``, ...)
+copied from SNAP's embedded header into GDAL's band descriptions afterwards
+(see :mod:`radar_snap_lib.snap_tiff`), so GDAL and QGIS show them too.
 """
 
 from __future__ import annotations
@@ -40,9 +44,11 @@ from omegaconf import DictConfig
 from radar_snap_lib.despeckle.dimap import remove_product
 from radar_snap_lib.snap_ops import snaphu
 from radar_snap_lib.snap_ops.filter_tail import (
+    GEOTIFF_FORMATS,
     FilterTail,
     check_filter_requirements,
     split_filter_tail,
+    tif_path,
 )
 from radar_snap_lib.snap_ops.OpsConfig import (
     GraphConfigError,
@@ -291,6 +297,20 @@ def _run_segments(
     )
 
 
+def _label_geotiff_writes(nodes: list[ParsedNode]) -> None:
+    """Name the bands of every GeoTIFF the ``Write`` nodes produced."""
+    from radar_snap_lib.snap_tiff import label_geotiff  # noqa: PLC0415
+
+    for node in nodes:
+        if node.op != "Write" or "file" not in node.params:
+            continue
+        if str(node.params.get("formatName", "BEAM-DIMAP")) not in GEOTIFF_FORMATS:
+            continue
+        path = tif_path(node.params["file"])
+        if path.is_file():
+            label_geotiff(path)
+
+
 def _run_filters(tail: FilterTail) -> list[Path]:
     from radar_snap_lib.filters import run_filters  # noqa: PLC0415
 
@@ -351,7 +371,7 @@ def run_graph(
     output_dir = ops_config.output_dir
     nodes, tail = split_filter_tail(nodes, output_dir)
     if tail is None:
-        return _run_snap(
+        result = _run_snap(
             nodes,
             registry=ops_config.registry,
             output_dir=output_dir,
@@ -359,6 +379,8 @@ def run_graph(
             snaphu_bin=snaphu_bin,
             quiet=quiet,
         )
+        _label_geotiff_writes(nodes)
+        return result
 
     # before SNAP runs, like the other checks
     check_filter_requirements()
@@ -374,6 +396,7 @@ def run_graph(
         if nodes
         else None
     )
+    _label_geotiff_writes(nodes)
     return FilterRunResult(snap=snap_result, outputs=_run_filters(tail))
 
 

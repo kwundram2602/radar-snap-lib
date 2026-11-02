@@ -300,7 +300,23 @@ pipeline:
 
 Every filter no other filter reads is written to `output_dir/<id>.tif`, and so
 is any filter with `save:` (`save: name` -> `name.tif`). The outputs keep the
-input's CRS, transform and band descriptions.
+input's CRS and transform, and each band is named after its input band and the
+filters applied: `Gamma0_VV_db` -> `Gamma0_VV_db_Canny_Closing`.
+
+SNAP's GeoTIFF writer keeps band names, units and the no-data value only in a
+DIMAP header embedded in the file (TIFF tag 65000), which GDAL and QGIS ignore
+-- they show "Band 1". So after SNAP finishes, `run` copies names and units of
+every GeoTIFF `Write` into GDAL's band descriptions (existing ones are kept,
+SNAP's header stays). Filters read the same header: a band without a GDAL
+description takes its name from it, and a file without GDAL nodata its no-data
+value, so SNAP's zero-filled border does not show up as an edge. For a file
+from elsewhere:
+
+```python
+from radar_snap_lib.snap_tiff import label_geotiff
+
+label_geotiff("gamma0_tc.tif")   # -> ["Gamma0_VV_db"]
+```
 
 | op         | parameters                                                          | output                       |
 |------------|---------------------------------------------------------------------|------------------------------|

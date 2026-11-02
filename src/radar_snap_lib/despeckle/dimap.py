@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-__all__ = ["Band", "DimapProduct", "copy_product", "remove_product"]
+__all__ = ["Band", "DimapProduct", "copy_product", "parse_bands", "remove_product"]
 
 #: DIMAP ``DATA_TYPE`` -> numpy dtype of the raw ``.img`` (always big-endian).
 _DTYPES = {
@@ -55,6 +55,8 @@ class Band:
     #: Band-maths expression of a virtual band, ``None`` for a band with data.
     expression: str | None
     info: ET.Element
+    #: The no-data value, ``None`` when the band declares none.
+    no_data: float | None = None
 
     @property
     def virtual(self) -> bool:
@@ -71,6 +73,40 @@ def _set_text(parent: ET.Element, tag: str, value: str) -> None:
     if element is None:
         element = ET.SubElement(parent, tag)
     element.text = value
+
+
+def _no_data(info: ET.Element) -> float | None:
+    if _text(info, "NO_DATA_VALUE_USED") != "true":
+        return None
+    value = _text(info, "NO_DATA_VALUE")
+    try:
+        return float(value) if value is not None else None
+    except ValueError:
+        return None
+
+
+def parse_bands(root: ET.Element) -> list[Band]:
+    """The ``Spectral_Band_Info`` entries of a parsed DIMAP header, in file order.
+
+    Also reads the header SNAP embeds in the GeoTIFFs it writes (see
+    :mod:`radar_snap_lib.snap_tiff`).
+    """
+    bands = []
+    for info in root.iterfind("Image_Interpretation/Spectral_Band_Info"):
+        bands.append(
+            Band(
+                name=_text(info, "BAND_NAME") or "",
+                index=int(_text(info, "BAND_INDEX") or -1),
+                data_type=_text(info, "DATA_TYPE") or "float32",
+                unit=_text(info, "PHYSICAL_UNIT"),
+                expression=_text(info, "EXPRESSION")
+                if _text(info, "VIRTUAL_BAND") == "true"
+                else None,
+                info=info,
+                no_data=_no_data(info),
+            )
+        )
+    return bands
 
 
 def _data_dir(dim: Path) -> Path:
@@ -107,21 +143,7 @@ class DimapProduct:
 
     @property
     def bands(self) -> list[Band]:
-        bands = []
-        for info in self.root.iterfind("Image_Interpretation/Spectral_Band_Info"):
-            bands.append(
-                Band(
-                    name=_text(info, "BAND_NAME") or "",
-                    index=int(_text(info, "BAND_INDEX") or -1),
-                    data_type=_text(info, "DATA_TYPE") or "float32",
-                    unit=_text(info, "PHYSICAL_UNIT"),
-                    expression=_text(info, "EXPRESSION")
-                    if _text(info, "VIRTUAL_BAND") == "true"
-                    else None,
-                    info=info,
-                )
-            )
-        return bands
+        return parse_bands(self.root)
 
     def band(self, name: str) -> Band:
         for band in self.bands:

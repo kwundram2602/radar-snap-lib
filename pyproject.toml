@@ -17,6 +17,7 @@ dependencies = [
     "scipy>=1.13",
     "geopandas>=1.0",
     "scikit-image>=0.24",
+    "tifffile>=2026.10.15",
 ]
 
 [project.optional-dependencies]

@@ -1302,6 +1302,7 @@ dependencies = [
     { name = "scikit-image" },
     { name = "scipy" },
     { name = "shapely" },
+    { name = "tifffile" },
 ]
 
 [package.optional-dependencies]
@@ -1346,6 +1347,7 @@ requires-dist = [
     { name = "scikit-image", specifier = ">=0.24" },
     { name = "scipy", specifier = ">=1.13" },
     { name = "shapely", specifier = ">=2.0" },
+    { name = "tifffile", specifier = ">=2026.10.15" },
     { name = "torch", marker = "extra == 'despeckle'", specifier = ">=2.6" },
 ]
 provides-extras = ["dev", "despeckle"]

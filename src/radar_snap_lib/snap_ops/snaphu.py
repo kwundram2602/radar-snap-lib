@@ -8,11 +8,6 @@ by a subprocess call. This module handles the JVM-free half of that: given
 an already-parsed node list, detect the pair, validate the split is
 well-formed, and partition the nodes into the two graphs.
 
-See docs/superpowers/specs/2026-08-05-snaphu-subprocess-design.md for the
-full design, including how the facts this module encodes (the two-source
-``SnaphuImport`` wiring, the ``snaphu -f snaphu.conf ...`` conf-file line,
-the ``UnwPhase_*.snaphu.hdr`` output naming) were confirmed against SNAP's
-own bundled reference graphs and tool-adapter templates.
 """
 
 from __future__ import annotations

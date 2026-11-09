@@ -166,8 +166,7 @@ pipeline:
 ```
 
 Every filter no other filter reads is written to `output_dir/<id>.tif`, and so
-is any filter with `save:` (`save: name` -> `name.tif`). The outputs keep the
-input's CRS and transform, and each band is named after its input band and the
+is any filter with `save:` (`save: name` -> `name.tif`). Each band is named after its input band and the
 filters applied: `Gamma0_VV_db` -> `Gamma0_VV_db_Canny_Closing`.
 
 ## Visualising a graph
@@ -180,6 +179,6 @@ radar-snap visualize results/s1/graph.xml -o graph.png      # a graph that ran
 ## Tests
 
 ```bash
-uv run pytest -m "not snap"   # the bulk; no SNAP required
+uv run pytest -m "not snap"   # no SNAP required
 uv run pytest -m snap         # needs a configured esa_snappy environment
 ```

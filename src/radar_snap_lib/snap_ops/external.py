@@ -44,8 +44,7 @@ class ExternalOp:
     requires: str
     #: Hint shown when ``requires`` is missing.
     install_hint: str
-    #: Checks beyond the spec's per-parameter ones, e.g. parameters that only
-    #: apply to one method. Returns error messages.
+    #: Extra checks, e.g. method-specific parameters. Returns error messages.
     check: Callable[[ParsedNode], list[str]]
     #: ``run(src_dim, dst_dim, params)`` with the spec's defaults filled in.
     run: Callable[[Path, Path, dict[str, Any]], None]

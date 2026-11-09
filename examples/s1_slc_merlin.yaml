@@ -4,12 +4,10 @@
 #   radar-snap dump-xml examples/s1_slc_merlin.yaml -o /tmp/graph.xml
 #   radar-snap run examples/s1_slc_merlin.yaml
 #
-# DeepDespeckle runs in Python (deepdespeckling, the 'despeckle' extra), not in
-# SNAP. `run` splits the pipeline around it: graph a writes the deburst product
-# to output_dir as BEAM-DIMAP, MERLIN despeckles it into DeepDespeckle.dim,
-# graph b reads that and carries on. MERLIN works on the complex i/q bands, so
-# it has to come before anything that detects (Multilook, Calibration to
-# intensity); afterwards the product looks like a GRD (Amplitude_*/Intensity_*).
+# DeepDespeckle runs in Python (the 'despeckle' extra): graph a writes the deburst
+# product as BEAM-DIMAP, MERLIN writes DeepDespeckle.dim, graph b reads it.
+# MERLIN needs the complex i/q bands, so it precedes any detection (Multilook,
+# Calibration to intensity); its output looks like a GRD.
 
 vars:
   scene: /data/s1/S1A_IW_SLC__1SDV_20240627T171631_20240627T171658_054512_06A24B_4234.zip

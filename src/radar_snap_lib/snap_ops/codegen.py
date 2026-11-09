@@ -106,8 +106,7 @@ def write_registry(
 ) -> Path:
     """Write the operator snapshot as sorted, diff-friendly JSON."""
     document = registry_to_json(registry, version=version)
-    # allow_nan=False keeps the snapshot standards-compliant: non-finite floats
-    # are encoded as strings upstream, so reaching here means a real bug.
+    # non-finite floats are encoded as strings upstream; a NaN here is a bug
     path.write_text(
         json.dumps(
             document, indent=2, ensure_ascii=False, sort_keys=False, allow_nan=False
@@ -167,8 +166,7 @@ def _docstring(spec: OperatorSpec) -> list[str]:
     if not summary.endswith("."):
         summary += "."
 
-    # SNAP descriptions run to arbitrary length; wrap so the generated module
-    # stays within the project's line limit.
+    # wrap long SNAP descriptions to the line limit
     wrapped = textwrap.wrap(summary, width=72) or [summary]
     lines = [f'    """{wrapped[0]}']
     lines.extend(f"    {line}" for line in wrapped[1:])

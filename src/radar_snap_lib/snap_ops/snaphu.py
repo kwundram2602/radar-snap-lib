@@ -209,8 +209,7 @@ def check_binary(snaphu_bin: str) -> Path:
             raise RuntimeError(_not_executable_message(path))
         return path
 
-    # A bare name: which() already filters on the executable bit, so a
-    # non-executable hit is indistinguishable from no hit at all.
+    # bare name: which() skips non-executables, so they look like no hit
     found = shutil.which(snaphu_bin)
     if found is None:
         raise RuntimeError(_not_found_message(snaphu_bin))

@@ -154,8 +154,7 @@ class TestRunSnaphuBinResolution:
 
     def test_defaults_to_plain_snaphu_when_unset(self, tmp_path, monkeypatch):
         monkeypatch.delenv("SNAPHU_BIN", raising=False)
-        # Isolate from this project's own .env, which may itself set
-        # SNAPHU_BIN -- same pattern as tests/test_config.py.
+        # ignore this repo's .env, which may set SNAPHU_BIN (as in test_config.py)
         monkeypatch.setattr(config, "_project_root", lambda: None)
         seen = self._run_and_capture(tmp_path, monkeypatch, [])
         assert seen["snaphu_bin"] == "snaphu"

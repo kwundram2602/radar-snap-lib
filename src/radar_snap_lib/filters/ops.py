@@ -49,8 +49,7 @@ def canny(
     use_quantiles: bool = False,
 ) -> np.ndarray:
     """Canny edges as ``uint8`` 0/1."""
-    # canny smooths with a mask-normalised Gaussian, but a NaN would still
-    # poison every product it enters
+    # NaN would still propagate through canny's mask-normalised Gaussian
     image = np.where(valid, band, 0).astype(np.float64)
     edges = feature.canny(
         image,
@@ -113,7 +112,7 @@ def closing(
     return _min_filter(_max_filter(band, valid, fp), valid, fp)
 
 
-# the ops take a parameter called ``footprint``, which shadows the function
+# shadowed by the ops' ``footprint`` parameter
 _footprint = footprint
 
 #: Config alias -> op.

@@ -5,16 +5,14 @@
 #   radar-snap validate examples/s1_slc_standard.yaml
 #   radar-snap run examples/s1_slc_standard.yaml --dump-xml /tmp/graph.xml
 #
-# Standard TOPSAR chain: split the swath, calibrate, deburst, multilook, then
-# geocode. A linear chain, so nothing needs explicit wiring.
+# TOPSAR chain: split, calibrate, deburst, multilook, geocode. Linear, no wiring.
 
 vars:
   scene: results/s1/wue/S1A_IW_SLC__1SDV_20240627T171631_20240627T171658_054512_06A24B_4234.zip
   output: results/s1/out/sigma0_tc_IW3_sub.tif
   subswath: IW3
   polarisation: VV
-  # AOI: a vector file (GeoPackage, Shapefile, GeoJSON), four numbers
-  # [W, S, E, N], or a WKT string -- same formats as the search config.
+  # AOI: vector file, [W, S, E, N] or WKT (as in the search config).
   aoi: /home/kjell/wue_aoi.gpkg
 
 pipeline:
@@ -28,10 +26,8 @@ pipeline:
   TOPSAR-Split:
     subswath: ${vars.subswath}
     selectedPolarisations: ${vars.polarisation}
-    # Spatial subset: restrict to bursts intersecting the AOI above.
-    # Doing it here -- before deburst -- is the safe way to subset TOPSAR
-    # SLC data; a pixel/geo subset on raw SLC can split a burst in two.
-    # ${aoi_wkt:...} parses vars.aoi (file, bbox, or WKT) into WKT inline.
+    # Keep bursts intersecting the AOI. Subset before deburst: a pixel/geo
+    # subset on raw SLC can split a burst. ${aoi_wkt:...} turns vars.aoi into WKT.
     wktAoi: ${aoi_wkt:${vars.aoi}}
 
   Calibration:

@@ -5,17 +5,14 @@
 #   radar-snap validate examples/s1_grd_canny.yaml
 #   radar-snap run examples/s1_grd_canny.yaml
 #
-# SNAP writes the GeoTIFF, then Canny runs on it in Python (scikit-image) and
-# writes ${output_dir}/Canny.tif: uint8, 1 = edge, 0 = no edge, 255 = nodata.
-# Its bands are named after the input bands, e.g. Gamma0_VV_db_Canny.
+# SNAP writes the GeoTIFF, then Canny (scikit-image) writes ${output_dir}/Canny.tif:
+# uint8, 1 = edge, 0 = no edge, 255 = nodata; bands e.g. Gamma0_VV_db_Canny.
 #
-# For a gamma0 GeoTIFF you already have, the pipeline shrinks to:
+# With an existing gamma0 GeoTIFF this runs without SNAP:
 #
 #   pipeline:
 #     Read: {file: /data/s1/out/gamma0_tc.tif}
 #     Canny: {sigma: 2.0, use_quantiles: true, low_threshold: 0.8, high_threshold: 0.95}
-#
-# which runs without SNAP.
 
 vars:
   scene: /data/s1/S1A_IW_GRDH_1SDV_20240101T054321_20240101T054346_051234_062ABC_1234.zip
@@ -62,11 +59,9 @@ pipeline:
     formatName: GeoTIFF
 
   Canny:
-    # Gaussian smoothing before the gradient; higher = fewer, smoother edges,
-    # which speckle needs even after the Refined Lee above
+    # Gaussian smoothing; higher = fewer, smoother edges (speckle needs it)
     sigma: 2.0
-    # thresholds as quantiles of the gradient magnitude: independent of the
-    # dB value range, so they carry over between scenes
+    # quantile thresholds don't depend on the dB range, so they transfer between scenes
     use_quantiles: true
     low_threshold: 0.8
     high_threshold: 0.95

@@ -43,9 +43,7 @@ class TestAliases:
         assert ALIASES["processing_level"] == "processingLevel"
 
     def test_every_asf_key_kept_its_own_alias(self):
-        # A dict comprehension cannot show a collision in its own values --
-        # a clash silently overwrites the earlier entry instead. Only the
-        # count against the source map catches that.
+        # a clash would silently overwrite an entry; only the count catches it
         from asf_search.ASFSearchOptions.validator_map import validator_map
 
         assert len(ALIASES) == len(validator_map)
@@ -173,9 +171,8 @@ class TestSearchOptions:
         assert SearchConfig.load(BASE).dest is None
 
     def test_aoi_is_resolved_only_once(self, gpkg, monkeypatch):
-        # validate() and search_options() must share one resolution -- a
-        # vector-file AOI is expensive to read and reproject, and each
-        # resolution logs a WARNING for every geometry repair ASF makes.
+        # validate() and search_options() share one resolution: a vector AOI is
+        # costly to reproject, and each resolution logs ASF's repair warnings.
         search_config_module = importlib.import_module(
             "radar_snap_lib.search.SearchConfig"
         )

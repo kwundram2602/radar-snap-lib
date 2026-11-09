@@ -115,9 +115,8 @@ def split_at_external(
         source_id = ext.sources[0]
         before = ancestors(source_id, remaining)
 
-        # Nodes still to come that read from this graph other than through
-        # the external node. A plain Read is fine -- it is simply read again --
-        # anything else would have to be computed twice.
+        # Later nodes reading this graph past the external node. A plain Read is
+        # fine (read again); anything else would be computed twice.
         kept_reads = set()
         for node in remaining.values():
             if node.id in before or node.id == ext.id:

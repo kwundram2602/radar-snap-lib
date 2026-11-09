@@ -48,7 +48,7 @@ SAVE_SUFFIX = "__save"
 #: (category, header colour, Java package prefixes); the first match wins, so
 #: the specific SAR packages come before the generic ``eu.esa.sar``.
 CATEGORIES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    # before the Python category, whose prefix also matches the filters
+    # before Python, whose prefix also matches filters
     ("Filter (scikit-image)", "#f7efb2", (FILTER_CLS_PREFIX,)),
     ("Python (outside SNAP)", "#fde2c8", (EXTERNAL_CLS_PREFIX,)),
     ("Sentinel-1", "#cfe2ff", ("eu.esa.sar.sentinel1",)),

@@ -59,8 +59,7 @@ _FLOAT_SEQ_TYPES = {"double[]", "float[]"}
 _TRUE = {"true", "1", "on", "yes"}
 _FALSE = {"false", "0", "off", "no"}
 
-#: Java package prefixes kept when generating the builder API.  The optical
-#: operators (``eu.esa.opt.*``, ~283 of them) are irrelevant to a radar library.
+#: Java package prefixes kept for the builder API (drops ~283 optical ops).
 SAR_PACKAGE_PREFIXES = (
     "eu.esa.sar.",
     "org.esa.snap.core.gpf.",
@@ -102,8 +101,7 @@ def python_type_name(type_name: str, *, optional: bool) -> str:
     elif type_name in _FLOAT_SEQ_TYPES:
         base = "tuple[float, ...]"
     else:
-        # Nested POJOs and enums: accept whatever the caller passes and hand it
-        # to the XML serialiser untouched.
+        # Nested POJOs and enums: passed to the XML serialiser untouched.
         return "Any"
     return f"{base} | None" if optional else base
 
@@ -136,8 +134,7 @@ def parse_default(raw: str | None, type_name: str, *, context: str = "") -> Any:
             # Java float literals carry an 'f'/'F' suffix, e.g. '-999.0f'.
             return float(text.rstrip("fFdD"))
         if type_name in _STR_TYPES:
-            # Deliberately verbatim.  'None' is a genuine String default for
-            # several operators and must stay the four-character string.
+            # verbatim: 'None' is a real String default for several operators
             return text
         if type_name in _STR_SEQ_TYPES:
             return tuple(part.strip() for part in text.split(","))
@@ -298,8 +295,7 @@ def _param_specs(descriptor: Any, alias: str) -> dict[str, ParamSpec]:
         value_set = tuple(str(v) for v in (param.getValueSet() or ()))
         param_alias = _text(param.getAlias())
         not_null = bool(param.isNotNull())
-        # A parameter with no default that SNAP marks non-null must always be
-        # supplied, so its annotation stays non-optional.
+        # non-null without a default: required, so not Optional
         required = not_null and default is None
         params[name] = ParamSpec(
             name=name,

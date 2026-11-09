@@ -128,10 +128,8 @@ class TestValidationErrors:
                 params={"targetFolder": "/tmp/snaphu_work"},
             ),
             _node("snaphu_import", "SnaphuImport", ["snaphu_export"]),
-            # 'stray' has no sources, so it is never an ancestor of
-            # snaphu_export; it is only referenced by 'write' (a descendant
-            # of snaphu_import), so it lands in neither graph_a_ids nor
-            # graph_b_ids -- this hits the "uncovered" branch, not "overlap".
+            # 'stray' is in neither graph_a_ids nor graph_b_ids: hits the
+            # "uncovered" branch, not "overlap".
             _node("stray", "Read"),
             _node("write", "Write", ["snaphu_import", "stray"]),
         ]
@@ -139,13 +137,8 @@ class TestValidationErrors:
             split_at_snaphu(nodes)
 
     def test_node_reachable_from_both_export_ancestry_and_import_descendants(self):
-        # 'x' is wired into a genuine cycle: snaphu_export depends on it
-        # directly (making it an ancestor of snaphu_export, i.e. a
-        # graph_a_ids member), and it in turn depends on snaphu_import
-        # (making it a descendant of snaphu_import, i.e. a graph_b_ids
-        # member too). This is the only way to land a node in both sets
-        # simultaneously, so it genuinely exercises the "overlap" branch
-        # rather than the "uncovered" branch above.
+        # 'x' sits in a real cycle (ancestor of snaphu_export, descendant of
+        # snaphu_import), so it is in both sets: hits the "overlap" branch.
         nodes = [
             _node("read", "Read"),
             _node("x", "Read", ["snaphu_import"]),
@@ -230,8 +223,7 @@ class TestFindConf:
         assert find_conf(tmp_path) == tmp_path / "snaphu.conf"
 
     def test_finds_the_conf_file_nested_in_a_product_subdirectory(self, tmp_path: Path):
-        # Real SnaphuExport output: <targetFolder>/<productName>/snaphu.conf,
-        # not directly in <targetFolder> -- confirmed against a real SNAP run.
+        # SnaphuExport writes <targetFolder>/<productName>/snaphu.conf (real SNAP)
         product_dir = tmp_path / "S1A_IW_SLC__1SDV_..._Orb_Stack_Ifg_Deb_ML_Flt"
         product_dir.mkdir()
         (product_dir / "snaphu.conf").write_text("x", encoding="utf-8")
@@ -244,8 +236,7 @@ class TestFindConf:
 
 class TestFindExportedProduct:
     def test_finds_the_single_exported_header(self, tmp_path: Path):
-        # Real SnaphuExport output is ENVI format (.hdr/.img pair), not
-        # BEAM-DIMAP (.dim) -- confirmed against a real SNAP run.
+        # SnaphuExport writes ENVI (.hdr/.img), not BEAM-DIMAP (real SNAP)
         (tmp_path / "Phase_ifg_IW3_VV_02Apr2026_08Apr2026.snaphu.hdr").write_text(
             "x", encoding="utf-8"
         )
@@ -273,10 +264,8 @@ class TestFindExportedProduct:
             find_exported_product(tmp_path)
 
     def test_does_not_match_the_unwrapped_output_stub(self, tmp_path: Path):
-        # SNAP pre-writes the UnwPhase_*.snaphu.hdr stub (see
-        # TestFindUnwrappedProduct) before snaphu ever runs, so both files
-        # coexist in the same directory when find_exported_product is
-        # called -- confirmed against a real SNAP run.
+        # SNAP pre-writes the UnwPhase_*.snaphu.hdr stub before snaphu runs, so
+        # both files coexist here (real SNAP).
         (tmp_path / "Phase_ifg.snaphu.hdr").write_text("x", encoding="utf-8")
         (tmp_path / "UnwPhase_ifg.snaphu.hdr").write_text("x", encoding="utf-8")
         assert find_exported_product(tmp_path) == tmp_path / "Phase_ifg.snaphu.hdr"
@@ -306,11 +295,8 @@ class TestFindUnwrappedProduct:
     def test_raises_when_only_the_pre_written_stub_header_exists(
         self, tmp_path: Path
     ):
-        # SnaphuExport pre-writes the .hdr stub during graph A, before
-        # snaphu ever runs -- confirmed against a real SNAP run. If the
-        # sibling .img (snaphu's actual output) never showed up, snaphu
-        # silently failed to produce anything despite exiting zero, and
-        # graph B must not proceed to read a headerless product.
+        # The .hdr stub exists since graph A (real SNAP); a missing .img means
+        # snaphu silently produced nothing, so graph B must not run.
         (tmp_path / "UnwPhase_ifg.snaphu.hdr").write_text("x", encoding="utf-8")
         with pytest.raises(RuntimeError, match="snaphu did not write"):
             find_unwrapped_product(tmp_path)

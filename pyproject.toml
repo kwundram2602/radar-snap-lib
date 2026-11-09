@@ -22,9 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]
-# DeepDespeckle pipeline node. Which torch build (CPU or CUDA) is the installing
-# project's choice -- this extra deliberately pins no index, or it would clash
-# with the torch index of a project that depends on radar-snap-lib.
+# DeepDespeckle node. No torch index pinned: the depending project picks CPU/CUDA.
 despeckle = [
     "deepdespeckling @ git+https://github.com/kwundram2602/deepdespeckling.git@main",
     "torch>=2.6",
@@ -58,19 +56,14 @@ markers = [
 addopts = "-m 'not network'"
 
 [tool.radar-snap-lib]
-# Path to the virtual environment that contains `esa_snappy` (created by SNAP's
-# `snappy-conf`). It is NOT installed as a dependency -- radar-snap-lib only puts
-# its site-packages on sys.path at runtime.
-#
-# Override without touching this file (highest precedence first):
-#   1. environment variable  ESA_SNAPPY_VENV=/path/to/esa_snappy_env/.venv
-#   2. a `.env` file in the project root (see .env.example)
+# venv with `esa_snappy` (from SNAP's `snappy-conf`). Not a dependency: its
+# site-packages are put on sys.path at runtime.
+# Overrides (highest first): env var ESA_SNAPPY_VENV, then `.env` (.env.example).
 esa-snappy-venv = "/home/kjell/projects/py_projects/esa_snappy_env/.venv"
 
-# torch for developing this repo: the `cpu` group by default (~200 MB), or for an
-# NVIDIA GPU `uv sync --no-default-groups --group dev --group cu128 --extra despeckle`.
-# Groups never reach projects that depend on radar-snap-lib, so neither do these
-# index pins.
+# Dev torch: `cpu` group by default (~200 MB); for an NVIDIA GPU
+# `uv sync --no-default-groups --group dev --group cu128 --extra despeckle`.
+# Groups and these index pins don't reach dependent projects.
 [tool.uv]
 default-groups = ["dev", "cpu"]
 conflicts = [[{ group = "cpu" }, { group = "cu128" }]]
@@ -100,8 +93,8 @@ select = ["E", "F", "I", "UP"]
 ignore = []
 
 [tool.ty.environment]
-# esa_snappy lives outside this project's venv (see [tool.radar-snap-lib]);
-# point ty at it so `import esa_snappy` resolves. Adjust alongside esa-snappy-venv.
+# Lets ty resolve `import esa_snappy` (outside the venv); keep in sync with
+# esa-snappy-venv.
 extra-paths = [
     "/home/kjell/projects/py_projects/esa_snappy_env/.venv/lib/python3.13/site-packages",
 ]

@@ -73,8 +73,7 @@ PIPELINE_KEY = "pipeline"
 OUTPUT_DIR_KEY = "output_dir"
 VARS_KEY = "vars"
 
-#: Format for saved intermediates -- BEAM-DIMAP is SNAP-native, so the
-#: products open directly in SNAP Desktop, which is the point of saving them.
+#: Format for saved intermediates: BEAM-DIMAP opens directly in SNAP Desktop.
 SAVE_FORMAT = "BEAM-DIMAP"
 
 
@@ -380,8 +379,7 @@ class OpsConfig:
 
         errors.extend(self._check_acyclic(nodes))
 
-        # a `save:` node gets its own Write at run time (see save_write_nodes),
-        # an external node writes its own output, a filter node its GeoTIFF
+        # save: / external / filter nodes all write output without a Write node
         has_output = saved or external or filters
         if not any(node.op == "Write" for node in nodes) and not has_output:
             warnings.warn(

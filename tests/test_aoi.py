@@ -28,8 +28,7 @@ def gpkg(tmp_path):
 
 class TestVectorFiles:
     def test_disjoint_features_become_one_hulled_polygon(self, gpkg):
-        # ASF accepts exactly one geometry, so validate_wkt convex-hulls
-        # disjoint parts together. The hull spans both boxes, gap included.
+        # ASF takes one geometry: validate_wkt hulls disjoint parts, gap included.
         geometry = shapely_wkt.loads(aoi_to_wkt(gpkg))
         assert geometry.geom_type == "Polygon"
         assert geometry.bounds == (10.0, 50.0, 13.0, 51.0)
@@ -64,9 +63,7 @@ class TestVectorFiles:
             aoi_to_wkt(tmp_path / "nope.gpkg")
 
     def test_missing_crs_raises(self, tmp_path):
-        # GeoJSON has no way to express "no CRS" -- RFC 7946 mandates WGS-84
-        # for any file that omits the "crs" member -- so this is only
-        # reachable for formats that carry real (possibly absent) metadata.
+        # GeoJSON can't express "no CRS" (RFC 7946 implies WGS-84), so use GPKG
         path = tmp_path / "nocrs.gpkg"
         gpd.GeoDataFrame(geometry=[box(10.0, 50.0, 11.0, 51.0)]).to_file(
             path, driver="GPKG"
@@ -75,9 +72,8 @@ class TestVectorFiles:
             aoi_to_wkt(path)
 
     def test_rfc7946_geojson_without_crs_member_is_accepted(self, tmp_path):
-        # RFC 7946 deprecates the "crs" member and mandates WGS-84 for any
-        # GeoJSON that omits it -- the shape emitted by QGIS, ogr2ogr, and
-        # geojson.io. geopandas already infers EPSG:4326 correctly here.
+        # RFC 7946: GeoJSON without "crs" (as QGIS/ogr2ogr write it) is WGS-84;
+        # geopandas infers EPSG:4326.
         path = tmp_path / "standard.geojson"
         path.write_text(
             json.dumps(

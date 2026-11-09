@@ -190,9 +190,7 @@ def _run_split(
     snaphu_bin: str,
     quiet: bool,
 ) -> SnaphuRunResult:
-    # Before anything expensive: graph A is a full coregistration run, and a
-    # missing or non-executable snaphu would otherwise only surface once it
-    # had finished.
+    # check snaphu first: graph A is a full coregistration run
     snaphu.check_binary(snaphu_bin)
 
     # Each injected Write belongs to whichever half holds the node it saves.
@@ -213,8 +211,7 @@ def _run_split(
     conf_path = snaphu.find_conf(target_folder)
     exported_product = snaphu.find_exported_product(target_folder)
 
-    # SnaphuExport can name a CORRFILE it never wrote; snaphu would only
-    # report that once per tile, in files nobody reads.
+    # SnaphuExport may name a CORRFILE it never wrote; snaphu only logs that per tile
     snaphu.check_corrfile(conf_path)
 
     snaphu.run_snaphu(conf_path, snaphu_bin=snaphu_bin, quiet=quiet)
@@ -268,12 +265,10 @@ def _run_segments(
     output_dir: Path | None,
     quiet: bool,
 ) -> SegmentedRunResult:
-    # Before anything runs: the graph in front of an external node is usually
-    # the expensive part.
+    # check first: the graph before an external node is usually the expensive part
     check_requirements(segments)
 
-    # Every file name is known up front, so all graphs are built -- and
-    # dumped -- before the first one runs.
+    # file names are known up front: build (and dump) all graphs before running
     xmls = segment_xmls(segments, registry)
     for letter, xml in zip(string.ascii_lowercase, xmls, strict=False):
         if xml is None:

@@ -4,12 +4,10 @@
 #   radar-snap search   examples/search_s1_slc.yaml
 #   radar-snap download examples/search_s1_slc.yaml
 #
-# Every setting lives here -- the commands take no flags. Downloading needs
-# Earthdata credentials; see .env.example. Searching does not.
+# All settings live here; downloading needs Earthdata credentials (.env.example).
 
-# AOI: a vector file (GeoPackage, Shapefile, GeoJSON -- all features are
-# unioned and reprojected to WGS-84), four numbers [W, S, E, N], or a WKT
-# string. Uncomment whichever you need.
+# AOI: vector file (features unioned, reprojected to WGS-84), [W, S, E, N] or
+# WKT. Uncomment the one you need.
 aoi: aois/testgebiet.gpkg
 # aoi: [10.0, 50.0, 11.0, 51.0]
 # aoi: POLYGON((10 50, 11 50, 11 51, 10 51, 10 50))
@@ -24,7 +22,7 @@ beam_mode: IW
 polarization: VV+VH
 max_results: 100
 
-# Any ASFSearchOptions key works here, in ASF's own camelCase or snake_case:
+# Any ASFSearchOptions key, camelCase or snake_case:
 # relative_orbit: 44
 # season: [90, 270]
 

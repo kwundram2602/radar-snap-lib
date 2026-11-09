@@ -3,8 +3,7 @@
 #   radar-snap validate examples/s1_grd_gamma0.yaml
 #   radar-snap run examples/s1_grd_gamma0.yaml --dump-xml /tmp/graph.xml
 #
-# A linear chain: every node takes the previous one as its source, so nothing
-# needs wiring up.
+# Linear chain: each node reads the previous one, no explicit wiring needed.
 
 vars:
   scene: /data/s1/S1A_IW_GRDH_1SDV_20240101T054321_20240101T054346_051234_062ABC_1234.zip

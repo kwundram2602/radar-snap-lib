@@ -19,8 +19,9 @@ Resolution order is `ESA_SNAPPY_VENV` in the environment, then `.env`, then
 ## Searching the ASF archive
 
 Finding scenes works like running a graph: describe it in YAML, validate it
-offline, then execute. There are no command line flags -- every setting,
-including the download target, lives in the config.
+offline, then execute.
+Searching needs no account. Downloading needs NASA Earthdata credentials --
+set `EARTHDATA_TOKEN` in your environment or `.env` (see `.env.example`).
 
 ```yaml
 # searches/testgebiet.yaml
@@ -44,20 +45,6 @@ radar-snap download searches/testgebiet.yaml
 A GeoPackage, Shapefile or GeoJSON AOI has all its features unioned and
 reprojected to WGS-84, then simplified as far as the ASF API requires.
 
-Any [`ASFSearchOptions`](https://docs.asf.alaska.edu/asf_search/searching/)
-key is accepted, in ASF's own camelCase (`flightDirection`) or as a snake_case
-alias (`flight_direction`). Validation runs against `asf_search`'s own option
-table, so a typo is caught without a network connection:
-
-```console
-$ radar-snap validate searches/testgebiet.yaml
-1 problem in searches/testgebiet.yaml:
-  - Unknown key 'flightdirection'. Did you mean: flight_direction?
-```
-
-Searching needs no account. Downloading needs NASA Earthdata credentials --
-set `EARTHDATA_TOKEN` in your environment or `.env` (see `.env.example`).
-
 ## Browsing operators
 
 ```bash
@@ -65,9 +52,6 @@ radar-snap ops                          # the 146 with builder methods
 radar-snap ops --filter all             # all 439
 radar-snap describe Terrain-Correction  # parameters, defaults, allowed values
 ```
-
-[docs/operators.md](docs/operators.md) is the same information as a reference
-document.
 
 ## Describing a pipeline
 
@@ -112,9 +96,6 @@ pipeline:
 No SNAP operator has a parameter called `op` or `sources`, so the two never
 collide with a real parameter name.
 
-See [examples/](examples/) for a full GRD backscatter chain and an SLC
-interferogram pair.
-
 ## Running it
 
 ```bash
@@ -122,31 +103,6 @@ radar-snap validate examples/s1_grd_gamma0.yaml       # no JVM needed
 radar-snap dump-xml examples/s1_grd_gamma0.yaml       # inspect the GPF graph
 radar-snap run examples/s1_grd_gamma0.yaml --dump-xml /tmp/graph.xml
 ```
-
-Or from Python:
-
-```python
-from radar_snap_lib.snap_ops import run_graph
-
-run_graph("pipeline.yaml", dump_xml="graph.xml")
-```
-
-`vars=` fills `${vars.*}` placeholders from code, merged over the config's own
-`vars` section, so one config runs over many scenes without being rewritten:
-
-```python
-for scene in scenes:
-    run_graph("pipeline.yaml", vars={"scene": scene, "output": out / scene.stem})
-```
-
-`OpsConfig.load(config, vars=...)` takes the same argument, e.g. to validate
-every run before the first one starts.
-
-The config is translated into SNAP's own graph XML and handed to
-`GraphProcessor` -- the same path the `gpt` CLI takes, so the whole chain streams
-tile by tile instead of materialising every intermediate product. The dumped
-`graph.xml` opens directly in SNAP Desktop.
-
 ### Saving intermediates and the executed graph
 
 A pipeline normally streams straight through without writing anything between
